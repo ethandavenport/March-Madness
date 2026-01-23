@@ -13,8 +13,8 @@ Tournament results and core identifiers come from the official March Machine Lea
 - **​[KPI rankings](https://faktorsports.com/)**: resume-based rating and SOS metrics
 
 # Building the Modeling Dataset
-The modeling dataset is constructed at the game level, with each row corresponding to a single NCAA tournament game between 2017 and 2024. The pipeline starts from the detailed tournament results and augments them with seeds and team names, restricted to the main bracket rounds for seasons where external sources are available.
-​
+The modeling dataset is constructed at the game level, with each row corresponding to a single NCAA tournament game. The pipeline starts from the detailed tournament results and augments them with seeds and team names, restricted to the main bracket rounds for seasons where external sources are available.
+
 Key steps:
 - **Tournament results**
   - Load tournament results and drop unneeded box score columns, keeping scoring, team IDs, and day numbers
@@ -26,8 +26,71 @@ Key steps:
   - Restrict to seasons where all metrics are available, ultimately focusing the modeling window on 2017–2025
 
 <p align="center">
+  <img width="701" height="182" alt="image" src="https://github.com/user-attachments/assets/44369a3b-451a-43b6-a369-b85ceaa8ac05">
+</p>
+
+# Merging External Team Features
+For each season, external datasets are reshaped into team-season–level tables and merged twice onto the game dataset: once for ATeam and once for BTeam. This creates a symmetric design where every numeric attribute exists in A and B versions.
+
+​Examples of merged features:
+- From **CBB**: offensive and defensive efficiencies, pace, shooting splits, offensive/defensive rebounding, turnover rates, and ranking-based stats
+- From **KenPom / Barttorvik**: adjusted offense/defense, tempo, average height, effective height, experience, talent, free-throw rates, and efficiency-based SOS measures
+- From **Resumes**: quad-level win/loss counts, quality-win indices, and other committee-style resume indicators
+- From **KPI**: KPI rating, SOS value, and SOS ranking for each team-season
+
+Because sources cover different year ranges, each file is filtered to the overlapping seasons and then concatenated. The final merged DataFrame includes 100+ columns per game, with consistent A/B feature pairs that maintain symmetry between teams. The following represents a conceptual mapping of  the final training data set.
+
+<p align="center">
   <img width="701" height="173" alt="image" src="https://github.com/user-attachments/assets/5a456561-c01f-4de5-80be-133e23eb9557">
 </p>
+
+# Feature Engineering and Grouped Selection
+The main target variable is a binary flag AWon indicating whether ATeam won the game. To ensure fair modeling, the design matrix is built so that each underlying stat appears as a pair: one column for ATeam and one for BTeam.
+
+Feature selection is performed using a **group-lasso–style approach**:
+- Start from the curated set of base team features from sources listed above
+- For each base feature, create both A and B columns
+- Run repeated fits of a logistic regression with L1-type penalty to select stable feature groups, selecting optimal alpha value across resamples
+- Enforce symmetry by requiring that if a stat is selected for A, the corresponding B stat is also included; this prevents the model from exploiting arbitrary naming of the two teams
+
+<p align="center">
+  <img width="659" height="393" alt="image" src="https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e">
+</p>
+
+# Model Training and Hyperparameter Tuning
+
+Four complementary models are trained using the selected feature set:
+
+1. **LASSO Logistic Regression**
+    - Binary logistic regression with L1 penalty to encourage sparsity with the grouped feature selection
+2. **Elastic Net Logistic Regression**
+    - Logistic regression with elastic net penalty (convex combination of L1 and L2) implemented via saga solver
+    - Cross-validated grid search over values of inverse-regularization strength C and l1-ratio, with a diagnostic plot of validation log loss to select hyperparameters
+3. **Gradient Boosting Classifier**
+    - Tree-based model fit on the selected features
+    - Optuna optimizes `n_estimators`, `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample` using log loss on held-out validation sets
+4. **Neural Network**
+    - Small fully connected network built with TensorFlow/Keras
+    - Optuna tunes the `number of neurons per layer`, `learning rate`, `L2 regularization`, and `batch size`, using early stopping on validation loss
+
+### Stabilizing Evaluation
+Because the dataset is relatively small (roughly a few hundred games across tournaments), a single train/test split can give noisy estimates of performance. To stabilize evaluation:
+- Each model is trained and evaluated across many random splits (e.g., 20–100 repetitions) with stratification on the outcome variable
+- For each model, the mean and standard deviation of test log loss are reported, alongside training log loss
+
+# Seed-Based Baseline and Historical Upsets
+Before trusting ML to drive bracket picks, the project establishes a **seeding-only baseline**:
+- Fit a simple logistic model using only the log ratio of seeds, log(BSeed/ASeed), to predict ATeam win probability
+- Use cross-validation to estimate typical win probabilities for every 1–16 vs. 1–16 pairing and visualize them as a 16×16 probability matrix
+- This serves as a benchmark for how much predictive power is available without any advanced metrics
+
+Historical upset rates by round and seed matchup (e.g., 12-over-5, 13-over-4) are computed from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies.
+
+<p align="center">
+  <img width="690" height="590" alt="image" src="https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974">
+</p>
+​
+
 
 
 ​
