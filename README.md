@@ -95,7 +95,7 @@ Four complementary models are trained using the selected feature set:
 
 ### Stabilizing Evaluation
 Because the dataset is **relatively small** (roughly a few hundred games across tournaments), a single train/test split can give noisy estimates of performance. To stabilize evaluation:
-- Each model is trained and evaluated across many random splits (i.e., 20–100 repetitions) with stratification on the outcome variable
+- Each model is trained and evaluated across many random splits (100+ iterations) with stratification on the outcome variable
 - For each model, the mean and standard deviation of test log loss across iterations are reported, alongside training log loss
 
 The model performance plot compares out-of-sample log loss across each model type, as well as the baseline, defined as the predicted probability for every game being equal to the underlying prevalence in the data, illustrating to what extent each model is able to improve the predicted probabilities.
