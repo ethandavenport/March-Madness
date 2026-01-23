@@ -101,7 +101,7 @@ Because the dataset is **relatively small** (roughly a few hundred games across 
 The model performance plot compares out-of-sample log loss across each model type, as well as the baseline, defined as the predicted probability for every game being equal to the underlying prevalence in the data, illustrating to what extent each model is able to improve the predicted probabilities.
 
 <p align="center">
-  <img width="527" height="327" alt="image" src="https://github.com/user-attachments/assets/48407f19-3730-4378-86b0-d17b7e2b6548">
+  <img width="527" height="327" alt="image" src="https://github.com/user-attachments/assets/dcc3c1d9-371a-4b43-8dc9-87ed4f30a57b">
 </p>
 
 The calibration plot compares predicted win probabilities to actual outcomes for all four models, illustrating how well each model’s probability estimates line up with observed frequencies across the probability range.
