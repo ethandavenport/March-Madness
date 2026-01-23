@@ -1,6 +1,8 @@
 # Project Overview
 This repository contains code to estimate win probabilities for NCAA men’s tournament games from 2017–2025 and to turn those probabilities into a bracket strategy for upcoming tournaments. The workflow covers data collection, merging and cleaning, feature selection with grouped penalties, model training and evaluation, and bracket construction rules that balance model predictions with historical seeding outcomes.
 
+This project was done purely for my enjoyment and hopeful success in March Madness bracket groups, and is not associated with any class, employer, or other formal commitment.
+
 # Data Collection and Sources
 Tournament results and core identifiers come from the official March Machine Learning Mania Kaggle competition (detailed results, seeds, and team metadata). Additional team strength metrics are pulled from several external sources covering efficiency, resume quality, and advanced scouting stats for recent seasons.
 ​
@@ -51,7 +53,7 @@ Feature selection is performed using a **group-lasso–style approach**:
 - Start from the curated set of base team features from sources listed above
 - For each base feature, create both A and B columns
 - Run repeated fits of a logistic regression with L1-type penalty to select stable feature groups, selecting optimal alpha value across resamples
-- Enforce symmetry by requiring that if a stat is selected for A, the corresponding B stat is also included; this prevents the model from exploiting arbitrary naming of the two teams
+- Enforce symmetry by requiring that **if a stat is selected for A, the corresponding B stat is also included**; this prevents the model from exploiting arbitrary naming of the two teams
 
 <p align="center">
   <img width="659" height="393" alt="image" src="https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e">
@@ -74,21 +76,41 @@ Four complementary models are trained using the selected feature set:
     - Optuna tunes the `number of neurons per layer`, `learning rate`, `L2 regularization`, and `batch size`, using early stopping on validation loss
 
 ### Stabilizing Evaluation
-Because the dataset is relatively small (roughly a few hundred games across tournaments), a single train/test split can give noisy estimates of performance. To stabilize evaluation:
-- Each model is trained and evaluated across many random splits (e.g., 20–100 repetitions) with stratification on the outcome variable
+Because the dataset is **relatively small** (roughly a few hundred games across tournaments), a single train/test split can give noisy estimates of performance. To stabilize evaluation:
+- Each model is trained and evaluated across many random splits (i.e., 20–100 repetitions) with stratification on the outcome variable
 - For each model, the mean and standard deviation of test log loss are reported, alongside training log loss
+
+<p align="center">
+  <img width="527" height="527" alt="image" src="https://github.com/user-attachments/assets/d1735c42-a2da-4ee8-8a21-af66499aa9af">
+</p>
 
 # Seed-Based Baseline and Historical Upsets
 Before trusting ML to drive bracket picks, the project establishes a **seeding-only baseline**:
 - Fit a simple logistic model using only the log ratio of seeds, log(BSeed/ASeed), to predict ATeam win probability
-- Use cross-validation to estimate typical win probabilities for every 1–16 vs. 1–16 pairing and visualize them as a 16×16 probability matrix
+- Use cross-validation to **estimate typical win probabilities for every 1–16 vs. 1–16 pairing** and visualize them as a 16×16 probability matrix
 - This serves as a benchmark for how much predictive power is available without any advanced metrics
 
-Historical upset rates by round and seed matchup (e.g., 12-over-5, 13-over-4) are computed from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies.
+Historical upset rates by round and seed matchup (i.e., 12-over-5, 13-over-4) are computed from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies.
 
 <p align="center">
-  <img width="690" height="590" alt="image" src="https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974">
+  <img width="460" height="393" alt="image" src="https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974">
 </p>
+
+# Bracket Construction Strategy
+The bracket logic revolves around a **lift score** that compares two perspectives on each game:
+- The log‑odds from the full machine‑learning model
+- The log‑odds implied by the simple, seed‑based baseline
+
+When this lift is **negative**, it signals that the model thinks the underdog is more dangerous than the seeding alone would suggest, flagging a potential upset. For each early round, historical data is used to translate typical upset rates into a round‑specific lift cutoff:
+- Historical games are ranked by lift (from most underdog‑friendly to most favorite‑friendly)
+- The cutoff is chosen so that the fraction of games below that cutoff matches how often underdogs have actually won in that round
+- In a future tournament, whenever a matchup’s lift for the worse seed is below the relevant cutoff, the bracket intentionally picks the upset, even if the favorite still has the higher raw win probability
+
+This procedure is repeated separately for every round through the Elite Eight, giving each stage its own lift threshold. Early rounds tend to allow more upset picks, while later rounds are more conservative, reflecting how rarely big surprises occur deep in the tournament. Because decisions are driven by these numeric thresholds rather than a fixed quota of surprises:
+- The **number of predicted upsets is allowed to vary** from year to year
+- Over many tournaments, the average upset rate naturally lines up with history, but **any given bracket can lean more chaotic or more chalky** depending on how strongly the model disagrees with the seed baseline.
+
+In the Final Four and title game, the bracket simply takes the team with the higher modeled win probability, avoiding extra thresholding when comparable historical data is limited and matchups are few.
 ​
 
 
