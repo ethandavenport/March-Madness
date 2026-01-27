@@ -51,7 +51,7 @@ The external sources are stacked and standardized into a unified team-season tab
 Because sources cover different year ranges, each file is filtered to the overlapping seasons and then concatenated. The team-season table is left-joined onto the game-level results using year and team ID, attaching the appropriate stats to each side of every matchup.
 
 <p align="center">
-  <img width="700" height="337" alt="image" src="https://github.com/user-attachments/assets/3328227e-2093-4426-b054-fb08f5cbb876">
+  <img width="700" height="337" alt="image" src="https://github.com/user-attachments/assets/c0fcf85e-cb8f-4159-80c7-d1afb7835c01">
   <br/>
 </p>
 
