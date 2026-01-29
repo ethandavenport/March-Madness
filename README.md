@@ -62,7 +62,7 @@ The final merged DataFrame includes 100+ columns per game, with consistent A/B f
   <img width="1061" height="238" alt="image" src="https://github.com/user-attachments/assets/fca30f66-cb61-4656-be35-5b39afe43ffa">
 </p>
 
-# Feature Engineering and Grouped Selection
+# Grouped Feature Selection
 The main target variable is a binary flag AWon indicating whether ATeam won the game. To ensure fair modeling, the design matrix is built so that each underlying stat appears as a pair: one column for ATeam and one for BTeam.
 
 Feature selection is performed using a **group-lasso–style approach**:
@@ -77,7 +77,7 @@ The alpha vs. cross‑validated log loss and feature count plot is used to choos
   <img width="659" height="393" alt="image" src="https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e">
 </p>
 
-# LASSO Feature Selection Results
+# Feature Selection Results
 
 LASSO ultimately keeps a compact subset of the most informative team metrics from the full pool of 60 features, focusing heavily on efficiency, schedule strength, and resume quality.
 - **ADJDE** – Adjusted defensive efficiency, capturing how many points a team allows per possession accounting for opponent quality and tempo
