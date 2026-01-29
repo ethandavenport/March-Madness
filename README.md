@@ -95,7 +95,7 @@ LASSO ultimately keeps a compact subset of the most informative team metrics fro
 - **TALENT** – Talent rating based on recruiting or roster quality, approximating the underlying player skill level on the team
 - **WAB** – “Wins Above Bubble,” estimating how many more games a team has won compared with a typical bubble team given its schedule
 
-The selected features are almost all efficiency, schedule-strength, and resume metrics, which directly capture how good a team is and who they’ve proven it against, rather than simpler descriptors like seed. This suggests the model is learning that underlying power ratings (KenPom/Barttorvik), resume scores (KPI, WAB, Q1/Q2 wins), and talent levels provide more predictive signal than seeding, so when regularization forces it to choose, seed is redundant and gets dropped. The model keeps these broad “catch‑all” indicators and discards more niche stats, such as 2‑ and 3‑point shooting splits, tempo, height, rebounding, free throw percentage, and more, implying that their effects are largely absorbed by the higher-level composite metrics.
+The selected features are almost all efficiency, schedule-strength, and resume metrics, which directly capture how good a team is and who they’ve proven it against, rather than simpler descriptors like seed. This suggests the model is learning that underlying power ratings (KenPom/Barttorvik), resume scores (KPI, WAB, Q1/Q2 wins), and talent levels provide more predictive signal than seeding, so when regularization forces it to choose, **seed is redundant and gets dropped**. The model keeps these broad “catch‑all” indicators and discards more niche stats, such as 2‑ and 3‑point shooting splits, tempo, height, rebounding, free throw percentage, and more, implying that their effects are largely absorbed by the higher-level composite metrics.
 
 # Model Training and Hyperparameter Tuning
 
@@ -134,7 +134,6 @@ The calibration plot compares predicted win probabilities to actual outcomes for
 Before trusting ML to drive bracket picks, the project establishes a **seeding-only baseline**:
 - Fit a simple logistic model using only the log ratio of seeds, log(BSeed/ASeed), to predict ATeam win probability
 - Use this simple model to **estimate typical win probabilities for every 1–16 vs. 1–16 pairing** and visualize them as a 16×16 probability matrix
-- This serves as a benchmark for how much predictive power is available without any advanced metrics
 
 Historical upset rates by seed matchup are trained from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies. The 16×16 seed‑baseline probability matrix visualizes the seed‑only model’s estimated win probabilities for every possible seed matchup, highlighting only cases where a seed is equal or favored to show how strongly the baseline expects better seeds to advance.
 
