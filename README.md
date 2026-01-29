@@ -77,6 +77,26 @@ The alpha vs. cross‑validated log loss and feature count plot is used to choos
   <img width="659" height="393" alt="image" src="https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e">
 </p>
 
+# LASSO Feature Selection Results
+
+LASSO ultimately keeps a compact subset of the most informative team metrics from the full pool of 60 features, focusing heavily on efficiency, schedule strength, and resume quality.
+- **ADJDE** – Adjusted defensive efficiency, capturing how many points a team allows per possession accounting for opponent quality and tempo
+- **ADJOE** – Adjusted offensive efficiency, measuring how effectively a team scores per possession on a tempo‑ and opponent‑adjusted basis
+- **BADJ EM** – Barttorvik-style adjusted efficiency margin (offense minus defense), summarizing overall team strength on a single scale
+- **BADJ O** – Barttorvik adjusted offensive efficiency, an alternative tempo-free measure of how strong the team is on offense
+- **BARTHAG** – Barttorvik’s overall power rating or “win probability vs. an average team,” representing general team quality
+- **ELITE SOS** – Strength-of-schedule metric emphasizing games against elite opponents, indicating how battle-tested a team is
+- **KADJ EM** – KenPom adjusted efficiency margin, a widely used overall strength indicator combining offense and defense
+- **KADJ O** – KenPom adjusted offensive efficiency, quantifying offensive quality in KenPom’s framework
+- **KPI #** – KPI ranking value, a resume-based measure that blends performance and schedule to mimic selection-committee evaluations
+- **Q1 PLUS Q2 W** – Total wins in Quadrant 1 and Quadrant 2 games, summarizing how often the team beats high- and mid-tier competition
+- **Q1 W** – Wins specifically against top-tier (Quadrant 1) opponents
+- **R SCORE** – Resume score index that compresses quality wins, bad losses, and schedule into a single resume strength metric
+- **TALENT** – Talent rating based on recruiting or roster quality, approximating the underlying player skill level on the team
+- **WAB** – “Wins Above Bubble,” estimating how many more games a team has won compared with a typical bubble team given its schedule
+
+The selected features are almost all efficiency, schedule-strength, and resume metrics, which directly capture how good a team is and who they’ve proven it against, rather than simpler descriptors like seed. This suggests the model is learning that underlying power ratings (KenPom/Barttorvik), resume scores (KPI, WAB, Q1/Q2 wins), and talent levels provide more predictive signal than seeding, so when regularization forces it to choose, seed is redundant and gets dropped. The model keeps these broad “catch‑all” indicators and discards more niche stats, such as 2‑ and 3‑point shooting splits, tempo, height, rebounding, free throw percentage, and more, implying that their effects are largely absorbed by the higher-level composite metrics.
+
 # Model Training and Hyperparameter Tuning
 
 Four complementary models are trained using the selected feature set:
@@ -109,26 +129,6 @@ The calibration plot compares predicted win probabilities to actual outcomes for
 <p align="center">
   <img width="527" height="527" alt="image" src="https://github.com/user-attachments/assets/d1735c42-a2da-4ee8-8a21-af66499aa9af">
 </p>
-
-# LASSO Feature Selection
-
-LASSO ultimately keeps a compact subset of the most informative team metrics from the full pool of 60 features, focusing heavily on efficiency, schedule strength, and resume quality.
-- **ADJDE** – Adjusted defensive efficiency, capturing how many points a team allows per possession accounting for opponent quality and tempo
-- **ADJOE** – Adjusted offensive efficiency, measuring how effectively a team scores per possession on a tempo‑ and opponent‑adjusted basis
-- **BADJ EM** – Barttorvik-style adjusted efficiency margin (offense minus defense), summarizing overall team strength on a single scale
-- **BADJ O** – Barttorvik adjusted offensive efficiency, an alternative tempo-free measure of how strong the team is on offense
-- **BARTHAG** – Barttorvik’s overall power rating or “win probability vs. an average team,” representing general team quality
-- **ELITE SOS** – Strength-of-schedule metric emphasizing games against elite opponents, indicating how battle-tested a team is
-- **KADJ EM** – KenPom adjusted efficiency margin, a widely used overall strength indicator combining offense and defense
-- **KADJ O** – KenPom adjusted offensive efficiency, quantifying offensive quality in KenPom’s framework
-- **KPI #** – KPI ranking value, a resume-based measure that blends performance and schedule to mimic selection-committee evaluations
-- **Q1 PLUS Q2 W** – Total wins in Quadrant 1 and Quadrant 2 games, summarizing how often the team beats high- and mid-tier competition
-- **Q1 W** – Wins specifically against top-tier (Quadrant 1) opponents
-- **R SCORE** – Resume score index that compresses quality wins, bad losses, and schedule into a single resume strength metric
-- **TALENT** – Talent rating based on recruiting or roster quality, approximating the underlying player skill level on the team
-- **WAB** – “Wins Above Bubble,” estimating how many more games a team has won compared with a typical bubble team given its schedule
-
-The selected features are almost all efficiency, schedule-strength, and resume metrics, which directly capture how good a team is and who they’ve proven it against, rather than simpler descriptors like seed. This suggests the model is learning that underlying power ratings (KenPom/Barttorvik), resume scores (KPI, WAB, Q1/Q2 wins), and talent levels provide more predictive signal than seeding, so when regularization forces it to choose, seed is redundant and gets dropped. The model keeps these broad “catch‑all” indicators and discards more niche stats, such as 2‑ and 3‑point shooting splits, tempo, height, rebounding, free throw percentage, and more, implying that their effects are largely absorbed by the higher-level composite metrics.
 
 # Final Model Selection
 
