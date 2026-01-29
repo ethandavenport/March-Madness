@@ -130,6 +130,18 @@ The calibration plot compares predicted win probabilities to actual outcomes for
   <img width="527" height="527" alt="image" src="https://github.com/user-attachments/assets/d1735c42-a2da-4ee8-8a21-af66499aa9af">
 </p>
 
+# Seed-Based Baseline and Historical Upsets
+Before trusting ML to drive bracket picks, the project establishes a **seeding-only baseline**:
+- Fit a simple logistic model using only the log ratio of seeds, log(BSeed/ASeed), to predict ATeam win probability
+- Use this simple model to **estimate typical win probabilities for every 1–16 vs. 1–16 pairing** and visualize them as a 16×16 probability matrix
+- This serves as a benchmark for how much predictive power is available without any advanced metrics
+
+Historical upset rates by seed matchup are trained from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies. The 16×16 seed‑baseline probability matrix visualizes the seed‑only model’s estimated win probabilities for every possible seed matchup, highlighting only cases where a seed is equal or favored to show how strongly the baseline expects better seeds to advance.
+
+<p align="center">
+  <img width="518" height="443" alt="image" src="https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974">
+</p>
+
 # Final Model Selection
 
 **Elastic Net** was ultimately chosen for deployment because it provided the best balance of accuracy, stability, and bracket realism. The neural network underperformed, which is no surprise for such a small dataset. LASSO was marginally more accurate but noticeably more volatile and prone to extreme probabilities, and Elastic Net delivered competitive log loss while keeping predictions close to the seed‑based baseline. To underscore this, some out‑of‑sample model predictions were clearly too aggressive relative to seeding:
@@ -143,18 +155,6 @@ These examples highlight why a slightly “tamer” but more consistent model li
 
 <p align="center">
   <img width="527" height="327" alt="image" src="https://github.com/user-attachments/assets/fd9b8687-f1c5-4461-97f5-442860f8582d">
-</p>
-
-# Seed-Based Baseline and Historical Upsets
-Before trusting ML to drive bracket picks, the project establishes a **seeding-only baseline**:
-- Fit a simple logistic model using only the log ratio of seeds, log(BSeed/ASeed), to predict ATeam win probability
-- Use this simple model to **estimate typical win probabilities for every 1–16 vs. 1–16 pairing** and visualize them as a 16×16 probability matrix
-- This serves as a benchmark for how much predictive power is available without any advanced metrics
-
-Historical upset rates by seed matchup are trained from the same historical window, providing a reference for how aggressive ML-driven upsets should be. The idea is to avoid a bracket that is out-of-line with historical frequencies. The 16×16 seed‑baseline probability matrix visualizes the seed‑only model’s estimated win probabilities for every possible seed matchup, highlighting only cases where a seed is equal or favored to show how strongly the baseline expects better seeds to advance.
-
-<p align="center">
-  <img width="518" height="443" alt="image" src="https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974">
 </p>
 
 # Bracket Construction Strategy
