@@ -90,8 +90,8 @@ h1 {
 .round-headers-right { flex-direction: row-reverse; }
 .round-header-cell {
     flex: 1;
-    min-width: 140px;
-    max-width: 200px;
+    min-width: 160px;
+    max-width: 220px;
     font-family: 'Bebas Neue', sans-serif;
     font-size: 0.85rem;
     letter-spacing: 0.12em;
@@ -123,7 +123,7 @@ h1 {
 .bracket-wrapper {
     display: flex;
     gap: 0;
-    align-items: flex-start;
+    align-items: stretch;
     width: 100%;
     overflow-x: auto;
     padding-bottom: 1rem;
@@ -139,8 +139,8 @@ h1 {
     flex-direction: column;
     gap: 0;
     flex: 1;
-    min-width: 140px;
-    max-width: 200px;
+    min-width: 160px;
+    max-width: 220px;
     position: relative;
     padding: 0 3px;
 }
@@ -214,14 +214,15 @@ h1 {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-width: 340px;
+    align-self: stretch;
+    min-width: 380px;
     padding: 0 8px;
     gap: 0;
 }
 .champ-inner {
     display: flex;
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     width: 100%;
     gap: 8px;
@@ -230,8 +231,8 @@ h1 {
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-width: 140px;
-    max-width: 160px;
+    min-width: 160px;
+    max-width: 180px;
 }
 .champ-label {
     font-family: 'Bebas Neue', sans-serif;
@@ -246,8 +247,8 @@ h1 {
     flex-direction: column;
     align-items: center;
     flex: 1;
-    min-width: 150px;
-    max-width: 170px;
+    min-width: 160px;
+    max-width: 180px;
 }
 .champ-game {
     background: #ffffff;
@@ -285,24 +286,66 @@ st.markdown('<p class="subtitle">Model Predictions · Mixture of Experts</p>', u
 
 # ── Game card ──────────────────────────────────────────────────────────────────
 
-# Canonical bracket seed order for Round 1 (top to bottom)
-R1_SEED_ORDER = [1, 16, 8, 9, 5, 12, 4, 13, 6, 11, 3, 14, 7, 10, 2, 15]
+# Canonical R1 slot order: each entry is the lower seed of that matchup (top to bottom)
+# Slots: 0=1v16, 1=8v9, 2=5v12, 3=4v13, 4=6v11, 5=3v14, 6=7v10, 7=2v15
+R1_TOP_SEEDS = [1, 8, 5, 4, 6, 3, 7, 2]
 
-def sort_games(games, rnd):
-    """Sort games in bracket order based on the seeds involved."""
+def get_top_seed(row):
+    """Lower-numbered seed in a matchup (the 'favorite')."""
+    return min(int(row["Seed_A"]), int(row["Seed_B"]))
+
+def sort_games(games, rnd, region=None):
+    """
+    Sort games into correct bracket slot order.
+    R1: order by R1_TOP_SEEDS position.
+    R2+: order by which R1 slot the winning team came from.
+      - R2 slot i = winner of R1 slots 2i and 2i+1
+      - R3 slot i = winner of R2 slots 2i and 2i+1, etc.
+    We approximate by sorting on the top seed, but using the R1_TOP_SEEDS
+    ordering as the canonical slot map.
+    """
+    if len(games) == 0:
+        return games
+
     if rnd == "Round 1":
-        def sort_key(row):
-            top_seed = min(int(row["Seed_A"]), int(row["Seed_B"]))
+        def r1_key(row):
+            ts = get_top_seed(row)
             try:
-                return R1_SEED_ORDER.index(top_seed)
+                return R1_TOP_SEEDS.index(ts)
             except ValueError:
                 return 99
-        return games.sort_values(by=games.columns.tolist(), key=lambda _: games.apply(sort_key, axis=1))
-    else:
-        # Higher rounds: sort by the top seed (favorite) to preserve alignment
-        def sort_key2(row):
-            return min(int(row["Seed_A"]), int(row["Seed_B"]))
-        return games.iloc[games.apply(sort_key2, axis=1).argsort().values]
+        indices = sorted(range(len(games)), key=lambda i: r1_key(games.iloc[i]))
+        return games.iloc[indices].reset_index(drop=True)
+
+    # For R2+, the bracket slot is determined by which R1 slot pair fed into it.
+    # The top seed of the game tells us which "branch" of the bracket it's in:
+    # R2: winners of (1v16 & 8v9) → slot 0; (5v12 & 4v13) → slot 1; etc.
+    # This maps to groups of R1_TOP_SEEDS: group 0=[1,8], group 1=[5,4], group 2=[6,3], group 3=[7,2]
+    # For R3: group 0=[1,8,5,4], group 1=[6,3,7,2]
+    # For R4: group 0=[1,8,5,4,6,3,7,2]
+    rnd_to_group_size = {
+        "Round 2": 2,
+        "Round 3 (Sweet Sixteen)": 4,
+        "Round 4 (Elite Eight)": 8,
+        "Final Four": 8,
+        "Championship": 8,
+    }
+    grp_sz = rnd_to_group_size.get(rnd, 2)
+
+    def slot_key(row):
+        ts = get_top_seed(row)
+        # Find which R1 slot this seed would have won from
+        # by checking which group of R1_TOP_SEEDS contains it or its likely predecessor
+        for slot_idx, r1_seed in enumerate(R1_TOP_SEEDS):
+            group_start = (slot_idx // grp_sz) * grp_sz
+            group_seeds = R1_TOP_SEEDS[group_start:group_start + grp_sz]
+            if ts in group_seeds:
+                return group_start
+        # fallback: sort by seed value
+        return ts * 10
+
+    indices = sorted(range(len(games)), key=lambda i: slot_key(games.iloc[i]))
+    return games.iloc[indices].reset_index(drop=True)
 
 def team_row_html(name, seed, model_p, seed_p):
     """One team row: seed | name | model prob | seed prob, both color-coded."""
@@ -320,111 +363,137 @@ def team_row_html(name, seed, model_p, seed_p):
     )
 
 def game_card(row):
-    name_a = row["ATeamName"]
-    name_b = row["BTeamName"]
     seed_a = int(row["Seed_A"])
     seed_b = int(row["Seed_B"])
 
     fp   = row.get("FProb", float("nan"))
     sp   = row.get("SProb", float("nan"))
 
-    # Model probability from each team's perspective
-    # FProb = P(favorite wins); favorite = lower seed
+    # Always display lower seed (favorite) on top
     if seed_a <= seed_b:
-        model_a, model_b = fp, 1 - fp
-        seed_a_p, seed_b_p = sp, 1 - sp
+        name_top, seed_top, name_bot, seed_bot = row["ATeamName"], seed_a, row["BTeamName"], seed_b
+        model_top, model_bot = fp, 1 - fp
+        seed_top_p, seed_bot_p = sp, 1 - sp
     else:
-        model_a, model_b = 1 - fp, fp
-        seed_a_p, seed_b_p = 1 - sp, sp
+        name_top, seed_top, name_bot, seed_bot = row["BTeamName"], seed_b, row["ATeamName"], seed_a
+        model_top, model_bot = fp, 1 - fp
+        seed_top_p, seed_bot_p = sp, 1 - sp
 
     header = (
         '<div class="prob-header">'
         '<span></span><span></span>'
-        '<span>Model%</span><span>Seed%</span>'
+        '<span>Model</span><span>Seed</span>'
         '</div>'
     )
 
     return (
         f'<div class="game">'
         f'{header}'
-        f'{team_row_html(name_a, seed_a, model_a, seed_a_p)}'
-        f'{team_row_html(name_b, seed_b, model_b, seed_b_p)}'
+        f'{team_row_html(name_top, seed_top, model_top, seed_top_p)}'
+        f'{team_row_html(name_bot, seed_bot, model_bot, seed_bot_p)}'
         f'</div>'
     )
 
 # ── Region block ───────────────────────────────────────────────────────────────
 REGION_ROUNDS = ["Round 1", "Round 2", "Round 3 (Sweet Sixteen)", "Round 4 (Elite Eight)"]
-GAME_H = 84   # px: header(18) + 2 teams(30ea) + margins
-GAP    = 3
+GAME_H  = 84   # px per game card (header + 2 rows + borders)
+GAME_MB = 3    # margin-bottom on each game div
+GAP_PX  = 3    # padding on each side of round-col (total 6px per col)
+
+def compute_positions(n):
+    """
+    Return list of (top_y, center_y) for n games laid out in a column
+    whose total height = R1_TOTAL. Games are evenly spaced in slots.
+    """
+    r1_total = 8 * GAME_H + 7 * GAME_MB
+    if n == 8:
+        positions = []
+        y = 0
+        for _ in range(n):
+            positions.append((y, y + GAME_H / 2))
+            y += GAME_H + GAME_MB
+        return positions
+    else:
+        slot_h  = r1_total / n
+        spacer  = (slot_h - GAME_H) / 2
+        positions = []
+        for i in range(n):
+            top_y = i * slot_h + spacer
+            positions.append((top_y, top_y + GAME_H / 2))
+        return positions
+
+def connector_svg_html(prev_positions, curr_positions, rtl, total_h):
+    """
+    Build an SVG that draws bracket lines connecting pairs of prev_positions
+    to each curr_position. The SVG is 8px wide and total_h tall.
+    For LTR columns: SVG sits on the LEFT edge of the current column.
+    For RTL columns: SVG sits on the RIGHT edge of the current column.
+    Lines go: vertical bar connecting two parent centers, then horizontal to child center.
+    """
+    w = 8
+    lines = []
+    for i, (_, child_cy) in enumerate(curr_positions):
+        p1_cy = prev_positions[i * 2][1]
+        p2_cy = prev_positions[i * 2 + 1][1]
+        mid_y = (p1_cy + p2_cy) / 2
+
+        if not rtl:
+            # SVG is to the LEFT of current col, lines go left→right
+            x_vert = 0   # vertical bar on left edge
+            x_game = w   # horizontal reaches right edge (into current col)
+        else:
+            # SVG is to the RIGHT of current col, lines go right→left
+            x_vert = w   # vertical bar on right edge
+            x_game = 0   # horizontal reaches left edge (into current col)
+
+        lines.append(f'<line x1="{x_vert}" y1="{p1_cy:.1f}" x2="{x_vert}" y2="{p2_cy:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>')
+        lines.append(f'<line x1="{x_vert}" y1="{mid_y:.1f}" x2="{x_game}" y2="{child_cy:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>')
+
+    side = "left:0" if not rtl else "right:0"
+    return (
+        f'<svg style="position:absolute;top:0;{side};width:{w}px;height:{total_h:.0f}px;'
+        f'pointer-events:none;overflow:visible;" viewBox="0 0 {w} {total_h:.0f}" preserveAspectRatio="none">'
+        + "".join(lines) + "</svg>"
+    )
 
 def region_html(region, rtl=False):
     direction = "rtl" if rtl else ""
-    html = f'<div class="region-block">'
-    html += f'<div class="rounds-row {direction}">'
+    r1_total = 8 * GAME_H + 7 * GAME_MB
+    total_h  = r1_total
+
+    all_positions = []  # one list of (top_y, center_y) per round
+
+    html = f'<div class="region-block"><div class="rounds-row {direction}">'
 
     for rnd_idx, rnd in enumerate(REGION_ROUNDS):
-        games = games_for(region, rnd)
+        games    = games_for(region, rnd)
+        n        = len(games)
+        positions = compute_positions(n) if n > 0 else []
+        all_positions.append(positions)
 
-        n = len(games)
-        r1_total = 8 * GAME_H + 7 * GAP
-
-        # Build game positions for connector SVG
-        game_positions = []  # (top_y, center_y) per game
-
-        col_html = '<div class="round-col" style="position:relative;">'
+        col_style = f'position:relative;height:{total_h}px;'
+        col_html  = f'<div class="round-col" style="{col_style}">'
 
         if n == 0:
             col_html += '</div>'
             html += col_html
             continue
 
-        if n < 8:
-            slot_h  = r1_total / n
-            spacer  = int((slot_h - GAME_H) / 2)
-            between = int(slot_h - GAME_H)
+        slot_h  = total_h / n
+        spacer  = int((slot_h - GAME_H) / 2)
+        between = int(slot_h - GAME_H)
 
-            col_html += f'<div class="game-spacer" style="height:{spacer}px"></div>'
-            cur_y = spacer
-            for idx, (_, row) in enumerate(games.iterrows()):
-                game_positions.append(cur_y + GAME_H / 2)
-                col_html += game_card(row)
-                cur_y += GAME_H + 3  # margin-bottom 3px
-                if idx < len(games) - 1:
-                    col_html += f'<div class="game-spacer" style="height:{between}px"></div>'
-                    cur_y += between
-        else:
-            cur_y = 0
-            for _, row in games.iterrows():
-                game_positions.append(cur_y + GAME_H / 2)
-                col_html += game_card(row)
-                cur_y += GAME_H + 3
+        col_html += f'<div class="game-spacer" style="height:{spacer}px"></div>'
+        for idx, (_, row) in enumerate(games.iterrows()):
+            col_html += game_card(row)
+            if idx < n - 1:
+                col_html += f'<div class="game-spacer" style="height:{between}px"></div>'
 
-        # SVG bracket connectors: draw lines from this column's games to next round
-        # Only draw on non-last rounds and when this column feeds pairs into the next
-        if rnd_idx > 0 and n > 0:
-            total_h = r1_total
-            svg = f'<svg class="connector-svg" viewBox="0 0 6 {total_h}" preserveAspectRatio="none" style="position:absolute;top:0;{"right:100%" if not rtl else "left:100%"};width:6px;height:100%;overflow:visible;">'
-            # For each pair of games in the PREVIOUS round, draw a bracket line to this game
-            # We draw: vertical line connecting two parent game centers, then horizontal line to this game
-            for i, cy in enumerate(game_positions):
-                if rnd_idx == 1:
-                    p1 = (i * 2) * (r1_total / 8) + GAME_H / 2
-                    p2 = (i * 2 + 1) * (r1_total / 8) + GAME_H / 2
-                else:
-                    prev_n = n * 2
-                    prev_slot = r1_total / prev_n
-                    p1 = int((prev_slot - GAME_H) / 2) + GAME_H / 2 + i * 2 * prev_slot
-                    p2 = int((prev_slot - GAME_H) / 2) + GAME_H / 2 + (i * 2 + 1) * prev_slot
-
-                # vertical line between the two parents' midpoints
-                x_side = 0 if not rtl else 6
-                svg += f'<line x1="{x_side}" y1="{p1:.1f}" x2="{x_side}" y2="{p2:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>'
-                # horizontal line from vertical midpoint to game
-                mid_y = (p1 + p2) / 2
-                x_game = 6 if not rtl else 0
-                svg += f'<line x1="{x_side}" y1="{mid_y:.1f}" x2="{x_game}" y2="{cy:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>'
-            svg += '</svg>'
-            col_html += svg
+        # Attach connector SVG if this column has a previous round to connect from
+        if rnd_idx > 0 and len(all_positions[rnd_idx - 1]) == n * 2:
+            col_html += connector_svg_html(
+                all_positions[rnd_idx - 1], positions, rtl, total_h
+            )
 
         col_html += '</div>'
         html += col_html
@@ -438,18 +507,38 @@ def champ_html():
     ff_games   = bracket[bracket["Round"] == "Final Four"].reset_index(drop=True)
     champ_game = bracket[bracket["Round"] == "Championship"].reset_index(drop=True)
 
-    # Split FF games: left game (W region winner) vs right game (Y region winner)
-    # Typically 2 FF games; first feeds from left side, second from right side
-    ff_left  = ff_games.iloc[[0]] if len(ff_games) > 0 else ff_games
-    ff_right = ff_games.iloc[[1]] if len(ff_games) > 1 else ff_games.iloc[:0]
+# ── Championship centre ────────────────────────────────────────────────────────
 
-    html = '<div class="champ-col">'
-    html += '<div class="champ-inner">'
+def champ_html():
+    ff_games   = bracket[bracket["Round"] == "Final Four"].reset_index(drop=True)
+    champ_game = bracket[bracket["Round"] == "Championship"].reset_index(drop=True)
 
-    # Left FF game
+    # Identify which FF game involves left regions (W/X) vs right regions (Y/Z)
+    left_region_set  = {"W", "X"}
+    right_region_set = {"Y", "Z"}
+
+    ff_left_game  = None  # W vs X semifinal → left of championship
+    ff_right_game = None  # Y vs Z semifinal → right of championship
+
+    for _, row in ff_games.iterrows():
+        regions_in_game = {str(row.get("Region_A", "")), str(row.get("Region_B", ""))}
+        if regions_in_game & left_region_set:
+            ff_left_game = row
+        else:
+            ff_right_game = row
+
+    # Fallback order
+    if ff_left_game is None and len(ff_games) > 0:
+        ff_left_game = ff_games.iloc[0]
+    if ff_right_game is None and len(ff_games) > 1:
+        ff_right_game = ff_games.iloc[1]
+
+    html = '<div class="champ-col"><div class="champ-inner">'
+
+    # Left FF (W vs X)
     html += '<div class="champ-ff-col">'
-    for _, row in ff_left.iterrows():
-        html += game_card(row)
+    if ff_left_game is not None:
+        html += game_card(ff_left_game)
     html += '</div>'
 
     # Center: Championship
@@ -461,16 +550,20 @@ def champ_html():
         s_a  = int(row["Seed_A"])
         s_b  = int(row["Seed_B"])
         if s_a <= s_b:
-            model_a, model_b = fp, 1 - fp
-            seed_a_p, seed_b_p = sp, 1 - sp
+            model_top, model_bot = fp, 1 - fp
+            seed_top_p, seed_bot_p = sp, 1 - sp
+            name_top, seed_top = row["ATeamName"], s_a
+            name_bot, seed_bot = row["BTeamName"], s_b
         else:
-            model_a, model_b = 1 - fp, fp
-            seed_a_p, seed_b_p = 1 - sp, sp
+            model_top, model_bot = fp, 1 - fp
+            seed_top_p, seed_bot_p = sp, 1 - sp
+            name_top, seed_top = row["BTeamName"], s_b
+            name_bot, seed_bot = row["ATeamName"], s_a
 
         html += '<div class="champ-game">'
-        html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed%</span></div>'
-        html += team_row_html(row["ATeamName"], s_a, model_a, seed_a_p)
-        html += team_row_html(row["BTeamName"], s_b, model_b, seed_b_p)
+        html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
+        html += team_row_html(name_top, seed_top, model_top, seed_top_p)
+        html += team_row_html(name_bot, seed_bot, model_bot, seed_bot_p)
 
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
@@ -478,14 +571,13 @@ def champ_html():
         html += '</div>'
     html += '</div>'
 
-    # Right FF game
+    # Right FF (Y vs Z)
     html += '<div class="champ-ff-col">'
-    for _, row in ff_right.iterrows():
-        html += game_card(row)
+    if ff_right_game is not None:
+        html += game_card(ff_right_game)
     html += '</div>'
 
-    html += '</div>'  # champ-inner
-    html += '</div>'  # champ-col
+    html += '</div></div>'
     return html
 
 # ── Assemble ───────────────────────────────────────────────────────────────────
