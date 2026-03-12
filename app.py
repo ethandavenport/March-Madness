@@ -40,7 +40,8 @@ def games_for(region, round_name):
         ((bracket["Region_A"] == region) | (bracket["Region_B"] == region)) &
         (bracket["Round"] == round_name)
     )
-    return bracket[mask].reset_index(drop=True)
+    games = bracket[mask].reset_index(drop=True)
+    return sort_games(games, round_name)
 
 def get_winner_seed(row):
     return int(row["Seed_A"]) if row["Selected"] == row["ATeamName"] else int(row["Seed_B"])
@@ -48,9 +49,9 @@ def get_winner_seed(row):
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-html, body, [data-testid="stAppViewContainer"] { background: #0a0a0f; color: #e8e0d0; }
+html, body, [data-testid="stAppViewContainer"] { background: #f5f3ef; color: #1a1a1a; }
 [data-testid="stAppViewContainer"] { padding: 0; }
 [data-testid="stHeader"] { background: transparent; }
 .block-container { padding: 2rem 2rem 4rem 2rem; max-width: 100%; }
@@ -59,7 +60,7 @@ h1 {
     font-family: 'Bebas Neue', sans-serif;
     font-size: clamp(2.5rem, 6vw, 5rem);
     letter-spacing: 0.08em;
-    background: linear-gradient(135deg, #f5a623 0%, #f5d623 50%, #f5a623 100%);
+    background: linear-gradient(135deg, #c97b00 0%, #e8a000 50%, #c97b00 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -69,10 +70,54 @@ h1 {
 .subtitle {
     font-family: 'DM Sans', sans-serif;
     font-size: 0.95rem;
-    color: #666;
+    color: #888;
     letter-spacing: 0.15em;
     text-transform: uppercase;
-    margin-bottom: 2.5rem;
+    margin-bottom: 2rem;
+}
+
+/* ── Round headers row (single strip above all columns) ── */
+.round-headers-row {
+    display: flex;
+    gap: 0;
+    margin-bottom: 4px;
+}
+.round-headers-left, .round-headers-right {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+}
+.round-headers-right { flex-direction: row-reverse; }
+.round-header-cell {
+    flex: 1;
+    min-width: 140px;
+    max-width: 200px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: #888;
+    text-align: center;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #d0ccc4;
+    margin: 0 3px;
+}
+.round-header-champ {
+    min-width: 340px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: #888;
+    text-align: center;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #d0ccc4;
+    display: flex;
+    gap: 0;
+    justify-content: center;
+}
+.round-header-champ span {
+    flex: 1;
+    text-align: center;
+    padding: 0 4px;
 }
 
 .bracket-wrapper {
@@ -85,99 +130,82 @@ h1 {
 }
 
 .region-block { flex: 1; min-width: 0; }
-.region-label {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 1.1rem;
-    letter-spacing: 0.12em;
-    color: #f5a623;
-    text-align: center;
-    margin-bottom: 0.75rem;
-    padding-bottom: 0.4rem;
-    border-bottom: 1px solid #2a2a3a;
-}
-.rounds-row { display: flex; gap: 6px; align-items: stretch; }
+.rounds-row { display: flex; gap: 0; align-items: stretch; }
 .rounds-row.rtl { flex-direction: row-reverse; }
 
+/* Each round column: position:relative so we can draw SVG connector lines */
 .round-col {
     display: flex;
     flex-direction: column;
     gap: 0;
     flex: 1;
-    min-width: 130px;
-    max-width: 180px;
-}
-.round-header {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
-    color: #444;
-    text-align: center;
-    margin-bottom: 6px;
-    height: 16px;
+    min-width: 140px;
+    max-width: 200px;
+    position: relative;
+    padding: 0 3px;
 }
 .game-spacer { flex-shrink: 0; }
 
 .game {
-    background: #13131e;
-    border: 1px solid #1e1e30;
-    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid #ddd9d2;
+    border-radius: 7px;
     overflow: hidden;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
     flex-shrink: 0;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
-.game:hover { border-color: #f5a62344; }
+.game:hover { border-color: #c97b0088; box-shadow: 0 2px 8px rgba(201,123,0,0.12); }
 
 /* Each team row: seed | name | model% | seed% */
 .team {
     display: grid;
-    grid-template-columns: 16px 1fr auto auto;
+    grid-template-columns: 18px 1fr auto auto;
     align-items: center;
-    padding: 5px 7px;
-    gap: 5px;
+    padding: 6px 8px;
+    gap: 6px;
     font-family: 'DM Sans', sans-serif;
-    font-size: 0.70rem;
-    color: #aaa;
-    border-bottom: 1px solid #1a1a28;
-    min-height: 28px;
+    font-size: 0.78rem;
+    color: #333;
+    border-bottom: 1px solid #eee9e2;
+    min-height: 30px;
     white-space: nowrap;
     overflow: hidden;
 }
 .team:last-child { border-bottom: none; }
 
 .seed {
-    font-size: 0.60rem;
-    color: #f5a623;
-    font-weight: 600;
+    font-size: 0.65rem;
+    color: #c97b00;
+    font-weight: 700;
     text-align: right;
 }
-.team-name { overflow: hidden; text-overflow: ellipsis; }
+.team-name { overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .pct {
-    font-size: 0.60rem;
-    font-weight: 600;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: #0a0a0f44;
-    min-width: 28px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #f5f0e8;
+    min-width: 34px;
     text-align: center;
-}
-.pct-label {
-    font-size: 0.50rem;
-    color: #444;
-    text-align: center;
-    min-width: 28px;
 }
 
-/* prob header row inside game */
+/* prob header row inside game — two labeled columns */
 .prob-header {
     display: grid;
-    grid-template-columns: 16px 1fr auto auto;
-    gap: 5px;
-    padding: 2px 7px 0 7px;
-    font-size: 0.50rem;
-    color: #333;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 6px;
+    padding: 3px 8px 1px 8px;
+    font-size: 0.58rem;
+    color: #999;
     font-family: 'DM Sans', sans-serif;
-    letter-spacing: 0.05em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: #faf8f4;
+    border-bottom: 1px solid #eee9e2;
 }
 
 /* Championship centre */
@@ -186,33 +214,67 @@ h1 {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-width: 150px;
-    padding: 0 10px;
+    min-width: 340px;
+    padding: 0 8px;
+    gap: 0;
+}
+.champ-inner {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    width: 100%;
     gap: 8px;
+}
+.champ-ff-col {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 140px;
+    max-width: 160px;
 }
 .champ-label {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.80rem;
     letter-spacing: 0.12em;
-    color: #444;
+    color: #999;
+    text-align: center;
+    margin-bottom: 4px;
+}
+.champ-ncg-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    min-width: 150px;
+    max-width: 170px;
 }
 .champ-game {
-    background: #13131e;
-    border: 1px solid #f5a62355;
+    background: #ffffff;
+    border: 1px solid #c97b0066;
     border-radius: 8px;
     overflow: hidden;
     width: 100%;
-    box-shadow: 0 0 30px #f5a62318;
+    box-shadow: 0 0 20px rgba(201,123,0,0.10);
 }
 .champion-banner {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.75rem;
+    font-size: 0.80rem;
     letter-spacing: 0.15em;
-    color: #f5a623;
+    color: #c97b00;
     text-align: center;
-    padding: 5px;
-    background: #f5a62310;
-    border-top: 1px solid #f5a62333;
+    padding: 5px 8px;
+    background: #fff8ec;
+    border-top: 1px solid #c97b0033;
+}
+
+/* SVG connector lines */
+.connector-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -222,6 +284,25 @@ st.markdown("<h1>2025 March Madness</h1>", unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Model Predictions · Mixture of Experts</p>', unsafe_allow_html=True)
 
 # ── Game card ──────────────────────────────────────────────────────────────────
+
+# Canonical bracket seed order for Round 1 (top to bottom)
+R1_SEED_ORDER = [1, 16, 8, 9, 5, 12, 4, 13, 6, 11, 3, 14, 7, 10, 2, 15]
+
+def sort_games(games, rnd):
+    """Sort games in bracket order based on the seeds involved."""
+    if rnd == "Round 1":
+        def sort_key(row):
+            top_seed = min(int(row["Seed_A"]), int(row["Seed_B"]))
+            try:
+                return R1_SEED_ORDER.index(top_seed)
+            except ValueError:
+                return 99
+        return games.sort_values(by=games.columns.tolist(), key=lambda _: games.apply(sort_key, axis=1))
+    else:
+        # Higher rounds: sort by the top seed (favorite) to preserve alignment
+        def sort_key2(row):
+            return min(int(row["Seed_A"]), int(row["Seed_B"]))
+        return games.iloc[games.apply(sort_key2, axis=1).argsort().values]
 
 def team_row_html(name, seed, model_p, seed_p):
     """One team row: seed | name | model prob | seed prob, both color-coded."""
@@ -259,7 +340,7 @@ def game_card(row):
     header = (
         '<div class="prob-header">'
         '<span></span><span></span>'
-        '<span>Model</span><span>Seed</span>'
+        '<span>Model%</span><span>Seed%</span>'
         '</div>'
     )
 
@@ -273,38 +354,80 @@ def game_card(row):
 
 # ── Region block ───────────────────────────────────────────────────────────────
 REGION_ROUNDS = ["Round 1", "Round 2", "Round 3 (Sweet Sixteen)", "Round 4 (Elite Eight)"]
-GAME_H = 76   # px: header(14) + 2 teams(28each) + margins
-GAP    = 4
+GAME_H = 84   # px: header(18) + 2 teams(30ea) + margins
+GAP    = 3
 
 def region_html(region, rtl=False):
     direction = "rtl" if rtl else ""
     html = f'<div class="region-block">'
-    html += f'<div class="region-label">{region} Region</div>'
     html += f'<div class="rounds-row {direction}">'
 
-    for rnd in REGION_ROUNDS:
+    for rnd_idx, rnd in enumerate(REGION_ROUNDS):
         games = games_for(region, rnd)
-        short = ROUND_SHORT[rnd]
-        html += f'<div class="round-col"><div class="round-header">{short}</div>'
 
         n = len(games)
+        r1_total = 8 * GAME_H + 7 * GAP
+
+        # Build game positions for connector SVG
+        game_positions = []  # (top_y, center_y) per game
+
+        col_html = '<div class="round-col" style="position:relative;">'
+
         if n == 0:
-            html += '</div>'
+            col_html += '</div>'
+            html += col_html
             continue
 
-        r1_total = 8 * GAME_H + 7 * GAP
         if n < 8:
-            slot_h   = r1_total / n
-            spacer   = int((slot_h - GAME_H) / 2)
-            between  = int(slot_h - GAME_H)
-            html += f'<div class="game-spacer" style="height:{spacer}px"></div>'
+            slot_h  = r1_total / n
+            spacer  = int((slot_h - GAME_H) / 2)
+            between = int(slot_h - GAME_H)
 
-        for idx, (_, row) in enumerate(games.iterrows()):
-            html += game_card(row)
-            if n < 8 and idx < len(games) - 1:
-                html += f'<div class="game-spacer" style="height:{between}px"></div>'
+            col_html += f'<div class="game-spacer" style="height:{spacer}px"></div>'
+            cur_y = spacer
+            for idx, (_, row) in enumerate(games.iterrows()):
+                game_positions.append(cur_y + GAME_H / 2)
+                col_html += game_card(row)
+                cur_y += GAME_H + 3  # margin-bottom 3px
+                if idx < len(games) - 1:
+                    col_html += f'<div class="game-spacer" style="height:{between}px"></div>'
+                    cur_y += between
+        else:
+            cur_y = 0
+            for _, row in games.iterrows():
+                game_positions.append(cur_y + GAME_H / 2)
+                col_html += game_card(row)
+                cur_y += GAME_H + 3
 
-        html += '</div>'
+        # SVG bracket connectors: draw lines from this column's games to next round
+        # Only draw on non-last rounds and when this column feeds pairs into the next
+        if rnd_idx > 0 and n > 0:
+            total_h = r1_total
+            svg = f'<svg class="connector-svg" viewBox="0 0 6 {total_h}" preserveAspectRatio="none" style="position:absolute;top:0;{"right:100%" if not rtl else "left:100%"};width:6px;height:100%;overflow:visible;">'
+            # For each pair of games in the PREVIOUS round, draw a bracket line to this game
+            # We draw: vertical line connecting two parent game centers, then horizontal line to this game
+            for i, cy in enumerate(game_positions):
+                if rnd_idx == 1:
+                    p1 = (i * 2) * (r1_total / 8) + GAME_H / 2
+                    p2 = (i * 2 + 1) * (r1_total / 8) + GAME_H / 2
+                else:
+                    prev_n = n * 2
+                    prev_slot = r1_total / prev_n
+                    p1 = int((prev_slot - GAME_H) / 2) + GAME_H / 2 + i * 2 * prev_slot
+                    p2 = int((prev_slot - GAME_H) / 2) + GAME_H / 2 + (i * 2 + 1) * prev_slot
+
+                # vertical line between the two parents' midpoints
+                x_side = 0 if not rtl else 6
+                svg += f'<line x1="{x_side}" y1="{p1:.1f}" x2="{x_side}" y2="{p2:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>'
+                # horizontal line from vertical midpoint to game
+                mid_y = (p1 + p2) / 2
+                x_game = 6 if not rtl else 0
+                svg += f'<line x1="{x_side}" y1="{mid_y:.1f}" x2="{x_game}" y2="{cy:.1f}" stroke="#ccc8c0" stroke-width="1.5"/>'
+            svg += '</svg>'
+            col_html += svg
+
+        col_html += '</div>'
+        html += col_html
 
     html += '</div></div>'
     return html
@@ -315,17 +438,28 @@ def champ_html():
     ff_games   = bracket[bracket["Round"] == "Final Four"].reset_index(drop=True)
     champ_game = bracket[bracket["Round"] == "Championship"].reset_index(drop=True)
 
-    html = '<div class="champ-col">'
-    html += '<div class="champ-label">Final Four</div>'
-    for _, row in ff_games.iterrows():
-        html += game_card(row)
+    # Split FF games: left game (W region winner) vs right game (Y region winner)
+    # Typically 2 FF games; first feeds from left side, second from right side
+    ff_left  = ff_games.iloc[[0]] if len(ff_games) > 0 else ff_games
+    ff_right = ff_games.iloc[[1]] if len(ff_games) > 1 else ff_games.iloc[:0]
 
+    html = '<div class="champ-col">'
+    html += '<div class="champ-inner">'
+
+    # Left FF game
+    html += '<div class="champ-ff-col">'
+    for _, row in ff_left.iterrows():
+        html += game_card(row)
+    html += '</div>'
+
+    # Center: Championship
+    html += '<div class="champ-ncg-col">'
     if not champ_game.empty:
-        row   = champ_game.iloc[0]
-        fp    = row.get("FProb", float("nan"))
-        sp    = row.get("SProb", float("nan"))
-        s_a   = int(row["Seed_A"])
-        s_b   = int(row["Seed_B"])
+        row  = champ_game.iloc[0]
+        fp   = row.get("FProb", float("nan"))
+        sp   = row.get("SProb", float("nan"))
+        s_a  = int(row["Seed_A"])
+        s_b  = int(row["Seed_B"])
         if s_a <= s_b:
             model_a, model_b = fp, 1 - fp
             seed_a_p, seed_b_p = sp, 1 - sp
@@ -333,38 +467,59 @@ def champ_html():
             model_a, model_b = 1 - fp, fp
             seed_a_p, seed_b_p = 1 - sp, sp
 
-        html += '<div style="height:10px"></div>'
-        html += '<div class="champ-label">Championship</div>'
         html += '<div class="champ-game">'
-        html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
+        html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed%</span></div>'
         html += team_row_html(row["ATeamName"], s_a, model_a, seed_a_p)
         html += team_row_html(row["BTeamName"], s_b, model_b, seed_b_p)
 
-        winner     = row["Selected"]
-        win_seed   = get_winner_seed(row)
+        winner   = row["Selected"]
+        win_seed = get_winner_seed(row)
         html += f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
         html += '</div>'
-
     html += '</div>'
+
+    # Right FF game
+    html += '<div class="champ-ff-col">'
+    for _, row in ff_right.iterrows():
+        html += game_card(row)
+    html += '</div>'
+
+    html += '</div>'  # champ-inner
+    html += '</div>'  # champ-col
     return html
 
 # ── Assemble ───────────────────────────────────────────────────────────────────
-# W plays X in Final Four → left side: W + X
-# Y plays Z in Final Four → right side: Y + Z
 regions = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region_B"].dropna().unique())
 left_regions  = [r for r in ["W", "X"] if r in regions]
 right_regions = [r for r in ["Y", "Z"] if r in regions]
 
-html = '<div class="bracket-wrapper">'
+# Single round-header strip
+hdr_left_cells  = "".join(f'<div class="round-header-cell">{ROUND_SHORT[r]}</div>' for r in REGION_ROUNDS)
+hdr_right_cells = "".join(f'<div class="round-header-cell">{ROUND_SHORT[r]}</div>' for r in reversed(REGION_ROUNDS))
+hdr_champ = (
+    '<div class="round-header-champ">'
+    '<span>FF</span><span>Championship</span><span>FF</span>'
+    '</div>'
+)
+headers_html = (
+    f'<div class="round-headers-row">'
+    f'<div class="round-headers-left">{hdr_left_cells}</div>'
+    f'{hdr_champ}'
+    f'<div class="round-headers-right">{hdr_right_cells}</div>'
+    f'</div>'
+)
 
-html += '<div style="display:flex;flex-direction:column;gap:16px;flex:1;min-width:0;">'
+html = headers_html
+html += '<div class="bracket-wrapper">'
+
+html += '<div style="display:flex;flex-direction:column;gap:12px;flex:1;min-width:0;">'
 for r in left_regions:
     html += region_html(r, rtl=False)
 html += '</div>'
 
 html += champ_html()
 
-html += '<div style="display:flex;flex-direction:column;gap:16px;flex:1;min-width:0;">'
+html += '<div style="display:flex;flex-direction:column;gap:12px;flex:1;min-width:0;">'
 for r in right_regions:
     html += region_html(r, rtl=True)
 html += '</div>'
