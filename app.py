@@ -372,4 +372,3 @@ html += '</div>'
 html += '</div>'
 
 st.markdown(html, unsafe_allow_html=True)
-
