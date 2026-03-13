@@ -168,7 +168,7 @@ h1 {
 }
 .round-headers-left  { display: flex; flex: 1; min-width: 0; }
 .round-headers-right { display: flex; flex: 1; min-width: 0; flex-direction: row-reverse; }
-/* Header cells mirror the column padding so labels sit over their boxes */
+/* Header cells: border-bottom only under the content area, gaps between rounds */
 .round-header-cell {
     flex: 1;
     min-width: 0;
@@ -179,7 +179,7 @@ h1 {
     color: #999;
     text-align: center;
     padding-bottom: 5px;
-    border-bottom: 2px solid #d8d4cc;
+    /* no border-bottom here — applied via inline style in Python to match box width */
 }
 /* champ placeholder — invisible, just holds space so headers don't stretch */
 .round-header-champ-spacer {
@@ -194,7 +194,6 @@ h1 {
     display: flex;
     align-items: stretch;
     width: 100%;
-    /* intentionally no overflow:hidden — champ col bleeds over sides */
 }
 .side-half {
     flex: 1;
@@ -207,7 +206,6 @@ h1 {
 .rounds-row     { display: flex; align-items: flex-start; }
 .rounds-row.rtl { flex-direction: row-reverse; }
 
-/* Round columns flex freely; first col (R64) has no left pad, others have pad for connectors */
 .round-col {
     flex: 1;
     min-width: 0;
@@ -530,19 +528,34 @@ regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region
 left_regions  = [r for r in ["W", "X"] if r in regions]
 right_regions = [r for r in ["Y", "Z"] if r in regions]
 
-# Round header cells — padding mirrors the column padding so labels align with boxes.
-# Column 0 (R64): no padding offset.
-# Columns 1-3 (R32, S16, E8): each has COL_PAD on its inner (right for left-half, left for right-half) side.
+# Round header cells — border-bottom only under the box content area, not the connector gap.
+# Column 0: full-width border. Columns 1-3: pad on inner side = connector gap (no border there).
+# We achieve "border only under content" by using a nested span with display:block + border,
+# inset by the COL_PAD on the appropriate side.
 def make_header_cells(rounds, rtl=False):
     cells = []
     for i, rnd in enumerate(rounds):
         if i == 0:
-            pad = ""
+            # No connector gap on the outer edge — border spans full cell
+            inner = (
+                f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
+                f'padding-bottom:5px;text-align:center;">{ROUND_SHORT[rnd]}</span>'
+            )
         else:
-            # Inner padding matches the column's connector padding
-            side = "right" if rtl else "left"
-            pad = f"padding-{side}:{COL_PAD}px;"
-        cells.append(f'<div class="round-header-cell" style="{pad}">{ROUND_SHORT[rnd]}</div>')
+            # Inner side has COL_PAD gap — offset the border to start after the gap
+            if not rtl:
+                inner = (
+                    f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
+                    f'padding-bottom:5px;text-align:center;margin-left:{COL_PAD}px;">'
+                    f'{ROUND_SHORT[rnd]}</span>'
+                )
+            else:
+                inner = (
+                    f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
+                    f'padding-bottom:5px;text-align:center;margin-right:{COL_PAD}px;">'
+                    f'{ROUND_SHORT[rnd]}</span>'
+                )
+        cells.append(f'<div class="round-header-cell">{inner}</div>')
     return "".join(cells)
 
 hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
