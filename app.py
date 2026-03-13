@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import base64
 import os
@@ -235,27 +236,6 @@ h1 {
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 .game:hover { border-color: #c97b0077; box-shadow: 0 2px 8px rgba(201,123,0,0.10); }
-
-/* ── SHAP tooltip ── */
-#shap-tooltip {
-    display: none;
-    position: fixed;
-    z-index: 99999;
-    background: #fff;
-    border: 1px solid #ddd9d2;
-    border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
-    padding: 8px;
-    pointer-events: none;
-    width: 580px;
-    max-width: 90vw;
-}
-#shap-tooltip img {
-    width: 100%;
-    height: auto;
-    display: block;
-    border-radius: 6px;
-}
 
 .team {
     display: grid;
@@ -622,17 +602,53 @@ for r in right_regions:
 html += '</div>'
 html += '</div>'
 
-# Append tooltip div and JS directly into the same HTML block so everything
-# lives in the same iframe and getElementById can find the tooltip.
-html += '''
-<div id="shap-tooltip"><img src="" alt="SHAP explanation"/></div>
+st.markdown(html, unsafe_allow_html=True)
 
+# ── SHAP tooltip via components.v1.html ───────────────────────────────────────
+# st.markdown strips <script> tags. Instead we use components.v1.html which
+# DOES execute scripts. From inside its iframe we reach window.parent.document
+# to inject the tooltip div and attach mouseover listeners to .game[data-shap]
+# elements that were rendered by st.markdown above.
+components.v1.html("""
 <script>
 (function() {
+    const doc   = window.parent.document;
     const TIP_W = 580;
     const OFFSET = 16;
 
-    const tooltip = document.getElementById('shap-tooltip');
+    // Inject tooltip div into the parent document if not already there
+    if (!doc.getElementById('shap-tooltip')) {
+        const style = doc.createElement('style');
+        style.textContent = `
+            #shap-tooltip {
+                display: none;
+                position: fixed;
+                z-index: 99999;
+                background: #fff;
+                border: 1px solid #ddd9d2;
+                border-radius: 10px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+                padding: 8px;
+                pointer-events: none;
+                width: 580px;
+                max-width: 90vw;
+            }
+            #shap-tooltip img {
+                width: 100%;
+                height: auto;
+                display: block;
+                border-radius: 6px;
+            }
+        `;
+        doc.head.appendChild(style);
+
+        const tip = doc.createElement('div');
+        tip.id = 'shap-tooltip';
+        tip.innerHTML = '<img src="" alt="SHAP explanation"/>';
+        doc.body.appendChild(tip);
+    }
+
+    const tooltip = doc.getElementById('shap-tooltip');
     const img     = tooltip.querySelector('img');
 
     function show(e) {
@@ -644,8 +660,8 @@ html += '''
     }
 
     function move(e) {
-        const vpW = window.innerWidth;
-        const vpH = window.innerHeight;
+        const vpW  = window.parent.innerWidth;
+        const vpH  = window.parent.innerHeight;
         const tipH = tooltip.offsetHeight || 420;
 
         let x = e.clientX + OFFSET;
@@ -667,7 +683,7 @@ html += '''
     }
 
     function attach() {
-        document.querySelectorAll('.game[data-shap]').forEach(function(el) {
+        doc.querySelectorAll('.game[data-shap]').forEach(function(el) {
             if (el.dataset.shapBound) return;
             el.dataset.shapBound = '1';
             el.addEventListener('mouseenter', show);
@@ -677,9 +693,7 @@ html += '''
     }
 
     attach();
-    new MutationObserver(attach).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(attach).observe(doc.body, { childList: true, subtree: true });
 })();
 </script>
-'''
-
-st.markdown(html, unsafe_allow_html=True)
+""", height=0)
