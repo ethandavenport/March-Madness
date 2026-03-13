@@ -1,11 +1,7 @@
 import streamlit as st
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")  # non-interactive backend, must be before pyplot import
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import base64
-import io
+import os
 
 st.set_page_config(page_title="2025 March Madness", layout="wide")
 
@@ -31,125 +27,18 @@ ROUND_SHORT = {
 bracket["Round"] = pd.Categorical(bracket["Round"], categories=ROUND_ORDER, ordered=True)
 bracket = bracket.sort_values("Round")
 
-# ── SHAP plot generation ───────────────────────────────────────────────────────
-# We need sklearn's StandardScaler to replicate the training pipeline.
-from sklearn.preprocessing import StandardScaler
-
-# The feature columns used by the MoE model — these must match X_train_scaled.columns
-# exactly. They are the numeric game-level features present in both df and bracket_df.
-# (Adjust this list if your training pipeline uses a different subset.)
-FEATURE_COLS = [c for c in X_train_scaled.columns]
-
-# The season year of the bracket we're displaying (held-out year)
-BRACKET_SEASON = int(bracket["Season"].iloc[0]) if "Season" in bracket.columns else 2025
-
-
-def _fit_scaler_without_season(season: int) -> StandardScaler:
-    """
-    Fit a StandardScaler on df rows from all seasons EXCEPT `season`.
-    This mirrors the original train/test split: test year is held out.
-    """
-    train_df = df[df["Season"] != season][FEATURE_COLS].dropna()
-    scaler = StandardScaler()
-    scaler.fit(train_df)
-    return scaler
-
-
-# Fit once at module load — cheap compared to SHAP
-_scaler = _fit_scaler_without_season(BRACKET_SEASON)
-
-
-def shap_plot_for_game(match_id: str) -> str | None:
-    """
-    Generate a SHAP waterfall plot for a game in bracket_df identified by MatchID.
-
-    Steps:
-      1. Find the game row in bracket (the displayed bracket CSV).
-      2. Extract its feature values using FEATURE_COLS.
-      3. Scale them with _scaler (fitted on all years except BRACKET_SEASON).
-      4. Run through moe_predict_proba and the pre-built explainer.
-      5. Return a base64-encoded PNG of the waterfall plot, or None on failure.
-
-    Requires in scope:
-        explainer        – shap.KernelExplainer (already fitted)
-        moe_predict_proba – prediction function accepted by SHAP
-        df               – full historical game DataFrame (for scaler fitting)
-        bracket          – 2025 bracket DataFrame
-        FEATURE_COLS     – list of feature column names
-        _scaler          – StandardScaler fitted on training years
-    """
-    # ── 1. Locate the game in bracket ─────────────────────────────────────────
-    game_rows = bracket[bracket["MatchID"] == match_id]
-    if game_rows.empty:
-        return None
-    game_row = game_rows.iloc[0]
-
-    team_a = game_row["ATeamName"]
-    team_b = game_row["BTeamName"]
-
-    # ── 2. Extract and scale features ─────────────────────────────────────────
-    try:
-        raw_features = game_row[FEATURE_COLS].values.reshape(1, -1).astype(float)
-    except KeyError as e:
-        # bracket_df is missing a required feature column
-        st.warning(f"SHAP: missing feature column {e} for game {match_id}")
-        return None
-
-    scaled = _scaler.transform(raw_features)
-    X_game = pd.DataFrame(scaled, columns=FEATURE_COLS)
-
-    # ── 3. Predict ────────────────────────────────────────────────────────────
-    pred_prob        = moe_predict_proba(X_game)[0]
-    predicted_winner = team_a if pred_prob >= 0.5 else team_b
-    winner_prob      = max(pred_prob, 1 - pred_prob)
-
-    # ── 4. SHAP explanation ───────────────────────────────────────────────────
-    shap_vals = explainer.shap_values(X_game)   # shape (1, n_features)
-
-    explanation = shap.Explanation(
-        values        = shap_vals[0],
-        base_values   = explainer.expected_value,
-        data          = X_game.iloc[0].values,
-        feature_names = FEATURE_COLS,
+# ── SHAP cache — read directly from the SHAPPlot column in bracket_2025.csv ──
+# fill_bracket.py populates this column when called with an explainer.
+# Values are base64-encoded PNG strings keyed by MatchID.
+if "SHAPPlot" in bracket.columns:
+    shap_cache = (
+        bracket[["MatchID", "SHAPPlot"]]
+        .dropna(subset=["SHAPPlot"])
+        .set_index("MatchID")["SHAPPlot"]
+        .to_dict()
     )
-
-    # ── 5. Plot ───────────────────────────────────────────────────────────────
-    fig = plt.figure()
-    shap.plots.waterfall(explanation, max_display=10, show=False)
-
-    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_a}")
-    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_b}")
-    plt.legend(handles=[red_patch, blue_patch], loc="lower right", fontsize=10)
-    plt.title(f"Predicted winner: {predicted_winner} ({winner_prob*100:.1f}%)", fontsize=14)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("utf-8")
-
-
-@st.cache_data(show_spinner="Generating SHAP explanations…")
-def build_shap_cache() -> dict:
-    """
-    Pre-render SHAP waterfall plots for every game in the displayed bracket.
-    Returns dict: MatchID (str) -> base64 PNG string.
-    Decorated with @st.cache_data so it runs once per session.
-    """
-    cache = {}
-    for _, row in bracket.iterrows():
-        mid = row.get("MatchID")
-        if pd.isna(mid):
-            continue
-        img = shap_plot_for_game(str(mid))
-        if img is not None:
-            cache[str(mid)] = img
-    return cache
-
-
-# Build at startup — cached after first run
-shap_cache = build_shap_cache()
+else:
+    shap_cache = {}
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -348,29 +237,25 @@ h1 {
 .game:hover { border-color: #c97b0077; box-shadow: 0 2px 8px rgba(201,123,0,0.10); }
 
 /* ── SHAP tooltip ── */
-.game { position: relative; }
-.shap-tooltip {
+#shap-tooltip {
     display: none;
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 1000;
+    z-index: 99999;
     background: #fff;
     border: 1px solid #ddd9d2;
     border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
     padding: 8px;
     pointer-events: none;
-    width: 560px;
+    width: 580px;
+    max-width: 90vw;
 }
-.shap-tooltip img {
+#shap-tooltip img {
     width: 100%;
     height: auto;
     display: block;
     border-radius: 6px;
 }
-.game:hover .shap-tooltip { display: block; }
 
 .team {
     display: grid;
@@ -472,7 +357,8 @@ def team_row_html(name, seed, model_p, seed_p):
 def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=None):
     """
     fp = P(favorite wins), where favorite = lower seed number.
-    match_id: if provided and present in shap_cache, injects a hover SHAP tooltip.
+    match_id: if provided and present in shap_cache, embeds base64 PNG
+              in a data-shap attribute for the JS tooltip to read.
     """
     if top_seed <= bot_seed:
         model_top, model_bot = fp, 1 - fp
@@ -482,20 +368,14 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=Non
         seed_top_p, seed_bot_p = 1 - sp, sp
     hdr = '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
 
-    tooltip_html = ""
+    data_attr = ""
     if match_id and match_id in shap_cache:
-        b64 = shap_cache[match_id]
-        tooltip_html = (
-            f'<div class="shap-tooltip">'
-            f'<img src="data:image/png;base64,{b64}" alt="SHAP explanation"/>'
-            f'</div>'
-        )
+        data_attr = f' data-shap="{shap_cache[match_id]}"'
 
     return (
-        f'<div class="game">{hdr}'
+        f'<div class="game"{data_attr}>{hdr}'
         f'{team_row_html(top_name, top_seed, model_top, seed_top_p)}'
         f'{team_row_html(bot_name, bot_seed, model_bot, seed_bot_p)}'
-        f'{tooltip_html}'
         f'</div>'
     )
 
@@ -663,15 +543,9 @@ def champ_html():
         else:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
 
-        tooltip_html = ""
-        if mid and mid in shap_cache:
-            tooltip_html = (
-                f'<div class="shap-tooltip">'
-                f'<img src="data:image/png;base64,{shap_cache[mid]}" alt="SHAP explanation"/>'
-                f'</div>'
-            )
+        data_attr = f' data-shap="{shap_cache[mid]}"' if mid and mid in shap_cache else ""
 
-        html += '<div class="champ-game">'
+        html += f'<div class="champ-game game"{data_attr}>'
         html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
         if ts <= bs:
             html += team_row_html(tn, ts, fp, sp)
@@ -682,7 +556,6 @@ def champ_html():
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
         html += f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
-        html += tooltip_html
         html += '</div>'
     html += '</div>'
 
@@ -750,3 +623,69 @@ html += '</div>'
 html += '</div>'
 
 st.markdown(html, unsafe_allow_html=True)
+
+# ── SHAP tooltip: single floating div + JS to show/hide on hover ──────────────
+# The bracket HTML is rendered inside a Streamlit iframe. We inject a single
+# #shap-tooltip div into that iframe's document.body and use JS mouseover/out
+# events to populate and position it near the cursor.
+st.markdown("""
+<div id="shap-tooltip"><img src="" alt="SHAP explanation"/></div>
+
+<script>
+(function() {
+    const TIP_W = 580;
+    const OFFSET = 16;   // px gap from cursor
+
+    const tooltip = document.getElementById('shap-tooltip');
+    const img     = tooltip.querySelector('img');
+
+    function show(e) {
+        const b64 = e.currentTarget.dataset.shap;
+        if (!b64) return;
+        img.src = 'data:image/png;base64,' + b64;
+        tooltip.style.display = 'block';
+        move(e);
+    }
+
+    function move(e) {
+        const vpW = window.innerWidth;
+        const vpH = window.innerHeight;
+        const tipH = tooltip.offsetHeight || 420;
+
+        let x = e.clientX + OFFSET;
+        let y = e.clientY + OFFSET;
+
+        // Flip left if too close to right edge
+        if (x + TIP_W > vpW - 8) x = e.clientX - TIP_W - OFFSET;
+        // Flip up if too close to bottom edge
+        if (y + tipH > vpH - 8) y = e.clientY - tipH - OFFSET;
+
+        // Clamp to viewport
+        x = Math.max(8, x);
+        y = Math.max(8, y);
+
+        tooltip.style.left = x + 'px';
+        tooltip.style.top  = y + 'px';
+    }
+
+    function hide() {
+        tooltip.style.display = 'none';
+        img.src = '';
+    }
+
+    function attach() {
+        document.querySelectorAll('.game[data-shap]').forEach(function(el) {
+            if (el.dataset.shapBound) return;
+            el.dataset.shapBound = '1';
+            el.addEventListener('mouseenter', show);
+            el.addEventListener('mousemove',  move);
+            el.addEventListener('mouseleave', hide);
+        });
+    }
+
+    // Attach now and re-attach if Streamlit re-renders the component
+    attach();
+    new MutationObserver(attach).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+""", unsafe_allow_html=True)
