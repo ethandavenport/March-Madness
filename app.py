@@ -553,7 +553,7 @@ def make_header_cells(rounds, rtl=False):
     return "".join(cells)
 
 hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
-hdr_right = make_header_cells(list(reversed(REGION_ROUNDS)), rtl=True)
+hdr_right = make_header_cells(REGION_ROUNDS, rtl=True)
 
 headers_html = (
     f'<div class="round-headers-row">'
@@ -564,12 +564,12 @@ headers_html = (
 
 html = headers_html
 html += '<div class="bracket-wrapper">'
-html += '<div class="side-half">'
+html += '<div class="side-half" style="padding-right:24px;">'
 for r in left_regions:
     html += region_html(r, rtl=False)
 html += '</div>'
 html += champ_html()
-html += '<div class="side-half">'
+html += '<div class="side-half" style="padding-left:24px;">'
 for r in right_regions:
     html += region_html(r, rtl=True)
 html += '</div>'
