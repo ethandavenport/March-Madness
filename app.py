@@ -168,9 +168,11 @@ h1 {
 }
 .round-headers-left  { display: flex; flex: 1; min-width: 0; }
 .round-headers-right { display: flex; flex: 1; min-width: 0; flex-direction: row-reverse; }
+/* Header cells mirror the column padding so labels sit over their boxes */
 .round-header-cell {
     flex: 1;
     min-width: 0;
+    box-sizing: border-box;
     font-family: 'Bebas Neue', sans-serif;
     font-size: 0.80rem;
     letter-spacing: 0.10em;
@@ -179,17 +181,12 @@ h1 {
     padding-bottom: 5px;
     border-bottom: 2px solid #d8d4cc;
 }
-.round-header-champ {
-    width: 500px;
+/* champ placeholder — invisible, just holds space so headers don't stretch */
+.round-header-champ-spacer {
+    width: 700px;
     flex-shrink: 0;
-    display: flex;
-    justify-content: space-around;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.80rem;
-    letter-spacing: 0.10em;
-    color: #999;
-    padding-bottom: 5px;
-    border-bottom: 2px solid #d8d4cc;
+    margin-left: -200px;
+    margin-right: -200px;
 }
 
 /* ── Main bracket wrapper ── */
@@ -268,13 +265,13 @@ h1 {
 
 /* ── Championship centre ── */
 .champ-col {
-    width: 500px;
+    width: 700px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: -120px;
-    margin-right: -120px;
+    margin-left: -200px;
+    margin-right: -200px;
     z-index: 2;
     position: relative;
 }
@@ -282,7 +279,7 @@ h1 {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
     padding: 0 4px;
 }
@@ -357,30 +354,39 @@ def game_card(gd):
 
 def make_connector_svg(prev_n, curr_n, rtl):
     """
-    Returns an SVG string connecting prev_n parent centers → curr_n child centers.
-    The SVG fills the full COL_PAD-wide padding strip.
-    The vertical bar sits at x = COL_PAD/2 (center of the gap between columns).
-    For LTR: vertical bar at x=COL_PAD/2, horizontal line goes right to x=COL_PAD (column edge).
-    For RTL: vertical bar at x=COL_PAD/2, horizontal line goes left to x=0 (column edge).
+    Bracket connector lines between prev_n parent games and curr_n child games.
+    SVG lives in the COL_PAD-wide padding strip between columns.
+
+    For each child game i connecting parents 2i and 2i+1:
+      - Short horizontal stub from each parent's right/left edge → vertical bar
+      - Vertical bar connecting the two parent stub endpoints (at x = COL_PAD/2)
+      - Horizontal line from midpoint of vertical bar → child game edge
+
+    LTR: parent edge = x=0, vertical bar at x=COL_PAD/2, child edge = x=COL_PAD
+    RTL: parent edge = x=COL_PAD, vertical bar at x=COL_PAD/2, child edge = x=0
     """
-    w = COL_PAD
-    h = R1_TOTAL
-    xv = w / 2           # vertical bar sits in the middle of the gap
-    xh_ltr = w           # horizontal reaches right edge (into current col) for LTR
-    xh_rtl = 0           # horizontal reaches left edge for RTL
+    w  = COL_PAD
+    h  = R1_TOTAL
+    xv = w / 2
+    x_parent = 0      if not rtl else w   # edge where parent col ends
+    x_child  = w      if not rtl else 0   # edge where child col begins
     lines = []
+    c  = "#ccc8c0"
+    sw = "1.2"
 
     for i in range(curr_n):
         cy  = game_center_y(i, curr_n)
         p1y = game_center_y(i * 2,     prev_n)
         p2y = game_center_y(i * 2 + 1, prev_n)
         my  = (p1y + p2y) / 2
-        xh  = xh_ltr if not rtl else xh_rtl
 
-        c = "#ccc8c0"
-        sw = "1.2"
+        # Horizontal stubs: parent edge → vertical bar, at each parent's center y
+        lines.append(f'<line x1="{x_parent}" y1="{p1y:.1f}" x2="{xv}" y2="{p1y:.1f}" stroke="{c}" stroke-width="{sw}"/>')
+        lines.append(f'<line x1="{x_parent}" y1="{p2y:.1f}" x2="{xv}" y2="{p2y:.1f}" stroke="{c}" stroke-width="{sw}"/>')
+        # Vertical bar connecting the two stub endpoints
         lines.append(f'<line x1="{xv}" y1="{p1y:.1f}" x2="{xv}" y2="{p2y:.1f}" stroke="{c}" stroke-width="{sw}"/>')
-        lines.append(f'<line x1="{xv}" y1="{my:.1f}" x2="{xh}" y2="{cy:.1f}" stroke="{c}" stroke-width="{sw}"/>')
+        # Horizontal line from midpoint → child game
+        lines.append(f'<line x1="{xv}" y1="{my:.1f}" x2="{x_child}" y2="{cy:.1f}" stroke="{c}" stroke-width="{sw}"/>')
 
     pos_side = "left:0" if not rtl else "right:0"
     return (
@@ -524,14 +530,28 @@ regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region
 left_regions  = [r for r in ["W", "X"] if r in regions]
 right_regions = [r for r in ["Y", "Z"] if r in regions]
 
-hdr_left  = "".join(f'<div class="round-header-cell">{ROUND_SHORT[r]}</div>' for r in REGION_ROUNDS)
-hdr_right = "".join(f'<div class="round-header-cell">{ROUND_SHORT[r]}</div>' for r in reversed(REGION_ROUNDS))
-hdr_champ = '<div class="round-header-champ"><span>FF</span><span>Championship</span><span>FF</span></div>'
+# Round header cells — padding mirrors the column padding so labels align with boxes.
+# Column 0 (R64): no padding offset.
+# Columns 1-3 (R32, S16, E8): each has COL_PAD on its inner (right for left-half, left for right-half) side.
+def make_header_cells(rounds, rtl=False):
+    cells = []
+    for i, rnd in enumerate(rounds):
+        if i == 0:
+            pad = ""
+        else:
+            # Inner padding matches the column's connector padding
+            side = "right" if rtl else "left"
+            pad = f"padding-{side}:{COL_PAD}px;"
+        cells.append(f'<div class="round-header-cell" style="{pad}">{ROUND_SHORT[rnd]}</div>')
+    return "".join(cells)
+
+hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
+hdr_right = make_header_cells(list(reversed(REGION_ROUNDS)), rtl=True)
 
 headers_html = (
     f'<div class="round-headers-row">'
     f'<div class="round-headers-left">{hdr_left}</div>'
-    f'{hdr_champ}'
+    f'<div class="round-header-champ-spacer"></div>'
     f'<div class="round-headers-right">{hdr_right}</div>'
     f'</div>'
 )
