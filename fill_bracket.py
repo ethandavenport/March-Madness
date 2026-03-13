@@ -37,8 +37,15 @@ AProb, FProb, SProb, Lift, Selected
 from __future__ import annotations
 from itertools import product
 from typing import Optional
+import base64
+import io
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import shap
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from moe_classifier import MixtureOfExperts, split_n_scale, lasso_cols
@@ -174,6 +181,51 @@ def _alphabetical_pair(tid1, tid2, seed_lookup):
     return (tid1, tid2) if n1 <= n2 else (tid2, tid1)
 
 
+def _shap_plot_b64(
+    X_scaled_row: pd.DataFrame,
+    explainer,
+    team_a: str,
+    team_b: str,
+    pred_prob: float,              # P(team_a wins)
+) -> str:
+    """
+    Generate a SHAP waterfall plot for one game row.
+    Returns a base64-encoded PNG string.
+    """
+    favorite = team_a if pred_prob >= 0.5 else team_b
+    fav_prob = max(pred_prob, 1.0 - pred_prob)
+
+    shap_vals = explainer.shap_values(X_scaled_row, silent=True)
+
+    # Rename features: var_A → var_{team_a}, var_B → var_{team_b}
+    renamed_features = [
+        col.replace("_A", f"_{team_a}").replace("_B", f"_{team_b}")
+        for col in X_scaled_row.columns
+    ]
+
+    # Pass data=None so SHAP doesn't append "= {value}" to feature names
+    explanation = shap.Explanation(
+        values        = shap_vals[0],
+        base_values   = explainer.expected_value,
+        data          = None,
+        feature_names = renamed_features,
+    )
+
+    shap.plots.waterfall(explanation, max_display=10, show=False)
+
+    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_a}")
+    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_b}")
+    plt.legend(handles=[red_patch, blue_patch], loc="lower right", fontsize=10)
+    plt.title(f"Favorite: {favorite} ({fav_prob*100:.1f}%)", fontsize=14)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight")
+    plt.close()
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
 def _predict_and_annotate(
     matchup_df: pd.DataFrame,
     feat_cols: list,
@@ -183,9 +235,12 @@ def _predict_and_annotate(
     lift_thresholds: dict,
     round_label: str,
     seed_lookup: pd.DataFrame,
+    explainer=None,
 ) -> tuple[pd.DataFrame, list]:
     """
     Scale, predict, compute FProb/SProb/Lift, pick winners.
+    If explainer is provided, also generates a SHAP waterfall plot per game
+    and stores it as a base64 PNG string in the SHAPPlot column.
     Returns (annotated_df, list_of_winner_TeamIDs).
     """
     X = matchup_df[feat_cols].astype(float)
@@ -212,6 +267,22 @@ def _predict_and_annotate(
     matchup_df["Lift"] = matchup_df.apply(
         lambda r: _lift(r["FProb"], r["SProb"]), axis=1
     )
+
+    # SHAP plots — one per game row, stored as base64 PNG
+    if explainer is not None:
+        shap_plots = []
+        for i, (_, row) in enumerate(matchup_df.iterrows()):
+            b64 = _shap_plot_b64(
+                X_scaled_row = X_scaled.iloc[[i]],
+                explainer    = explainer,
+                team_a       = row["ATeamName"],
+                team_b       = row["BTeamName"],
+                pred_prob    = float(row["AProb"]),
+            )
+            shap_plots.append(b64)
+        matchup_df["SHAPPlot"] = shap_plots
+    else:
+        matchup_df["SHAPPlot"] = None
 
     # Pick winners
     threshold = lift_thresholds.get(round_label) if round_label in UPSET_ROUNDS else None
@@ -253,6 +324,7 @@ def _run_bracket(
     seed_probs: pd.DataFrame,
     lift_thresholds: dict,
     season,
+    explainer=None,
 ) -> pd.DataFrame:
     """
     Run a full bracket simulation for one play-in outcome.
@@ -276,7 +348,7 @@ def _run_bracket(
                                          stat_cols, season, "Round 1")
         matchup_df, r1_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 1", seed_lookup
+            lift_thresholds, "Round 1", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
@@ -287,7 +359,7 @@ def _run_bracket(
                                          stat_cols, season, "Round 2")
         matchup_df, r2_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 2", seed_lookup
+            lift_thresholds, "Round 2", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
@@ -298,7 +370,7 @@ def _run_bracket(
                                          stat_cols, season, "Round 3 (Sweet Sixteen)")
         matchup_df, r3_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup
+            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
@@ -309,7 +381,7 @@ def _run_bracket(
                                          stat_cols, season, "Round 4 (Elite Eight)")
         matchup_df, r4_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup
+            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
@@ -327,7 +399,7 @@ def _run_bracket(
                                      stat_cols, season, "Final Four")
     matchup_df, ff_winners = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Final Four", seed_lookup
+        lift_thresholds, "Final Four", seed_lookup, explainer
     )
     all_dfs.append(matchup_df)
 
@@ -339,13 +411,20 @@ def _run_bracket(
                                      stat_cols, season, "Championship")
     matchup_df, _ = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Championship", seed_lookup
+        lift_thresholds, "Championship", seed_lookup, explainer
     )
     all_dfs.append(matchup_df)
 
     result = pd.concat(all_dfs, ignore_index=True)
     result["Round"] = pd.Categorical(result["Round"], categories=ROUND_LABELS, ordered=True)
-    return result.sort_values(["Round", "ATeamName"]).reset_index(drop=True)
+    result = result.sort_values(["Round", "ATeamName"]).reset_index(drop=True)
+
+    # Add MatchID column at beginning
+    low_ids = result[["ATeamID", "BTeamID"]].astype(int).min(axis=1).astype(str)
+    high_ids = result[["ATeamID", "BTeamID"]].astype(int).max(axis=1).astype(str)
+    result.insert(0, "MatchID", season + "_" + low_ids + "_" + high_ids)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +517,30 @@ def fill_bracket(
     scaler.fit(train_df[feat_cols].astype(float))
     print(f"[{season}] Model trained.")
 
+    # --- Build SHAP explainer using the same train split and scaler ---
+    print(f"[{season}] Building SHAP explainer...")
+    X_train_scaled = pd.DataFrame(
+        scaler.transform(train_df[feat_cols].astype(float)),
+        columns=feat_cols,
+    )
+
+    # Mirror your notebook's moe_predict_proba, but bound to the local model.
+    # Adjust attribute names (expert_models, weights) to match MixtureOfExperts exactly.
+    def _moe_predict_proba(X):
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X, columns=feat_cols)
+        Z = np.column_stack([
+            expert.predict_proba(X[cols])[:, 1]
+            for expert, cols in zip(model.experts_, model.expert_feature_sets_)
+        ])
+        return Z @ model.weights_
+
+    explainer = shap.KernelExplainer(
+        _moe_predict_proba,
+        shap.kmeans(X_train_scaled, 10),
+    )
+    print(f"[{season}] SHAP explainer ready.")
+
     # --- Build seed_lookup (indexed by TeamID) for main seeds ---
     seed_lookup_base = main_seeds.set_index("TeamID")[["TeamName", "Seed", "SeedNum", "Region"]]
 
@@ -527,6 +630,7 @@ def fill_bracket(
             seed_probs=seed_probs,
             lift_thresholds=lift_thresholds,
             season=season,
+            explainer=explainer,
         )
 
         # Key: tuple of play-in winner TeamIDs sorted W->X->Y->Z then seed num
