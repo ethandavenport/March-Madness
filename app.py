@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import base64
 import os
@@ -229,13 +228,42 @@ h1 {
     background: #ffffff;
     border: 1px solid #ddd9d2;
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
     margin-bottom: 3px;
     flex-shrink: 0;
     transition: border-color 0.15s, box-shadow 0.15s;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    position: relative;
 }
-.game:hover { border-color: #c97b0077; box-shadow: 0 2px 8px rgba(201,123,0,0.10); }
+.game:hover {
+    border-color: #c97b0077;
+    box-shadow: 0 2px 8px rgba(201,123,0,0.10);
+    z-index: 1000;
+}
+
+/* ── SHAP tooltip — pure CSS, no JS needed ── */
+.shap-tooltip {
+    display: none;
+    position: absolute;
+    left: 105%;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 560px;
+    background: #fff;
+    border: 1px solid #ddd9d2;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+    padding: 8px;
+    pointer-events: none;
+    z-index: 9999;
+}
+.shap-tooltip img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+}
+.game:hover .shap-tooltip { display: block; }
 
 .team {
     display: grid;
@@ -337,8 +365,8 @@ def team_row_html(name, seed, model_p, seed_p):
 def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=None):
     """
     fp = P(favorite wins), where favorite = lower seed number.
-    match_id: if provided and present in shap_cache, embeds base64 PNG
-              in a data-shap attribute for the JS tooltip to read.
+    match_id: if provided and present in shap_cache, embeds SHAP image as
+              a CSS-hover tooltip directly inside the game div.
     """
     if top_seed <= bot_seed:
         model_top, model_bot = fp, 1 - fp
@@ -348,14 +376,20 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=Non
         seed_top_p, seed_bot_p = 1 - sp, sp
     hdr = '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
 
-    data_attr = ""
+    tooltip_html = ""
     if match_id and match_id in shap_cache:
-        data_attr = f' data-shap="{shap_cache[match_id]}"'
+        b64 = shap_cache[match_id]
+        tooltip_html = (
+            f'<div class="shap-tooltip">'
+            f'<img src="data:image/png;base64,{b64}" alt="SHAP explanation"/>'
+            f'</div>'
+        )
 
     return (
-        f'<div class="game"{data_attr}>{hdr}'
+        f'<div class="game">{hdr}'
         f'{team_row_html(top_name, top_seed, model_top, seed_top_p)}'
         f'{team_row_html(bot_name, bot_seed, model_bot, seed_bot_p)}'
+        f'{tooltip_html}'
         f'</div>'
     )
 
@@ -523,9 +557,15 @@ def champ_html():
         else:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
 
-        data_attr = f' data-shap="{shap_cache[mid]}"' if mid and mid in shap_cache else ""
+        tooltip_html = ""
+        if mid and mid in shap_cache:
+            tooltip_html = (
+                f'<div class="shap-tooltip">'
+                f'<img src="data:image/png;base64,{shap_cache[mid]}" alt="SHAP explanation"/>'
+                f'</div>'
+            )
 
-        html += f'<div class="champ-game game"{data_attr}>'
+        html += '<div class="champ-game game">'
         html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
         if ts <= bs:
             html += team_row_html(tn, ts, fp, sp)
@@ -536,6 +576,7 @@ def champ_html():
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
         html += f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
+        html += tooltip_html
         html += '</div>'
     html += '</div>'
 
@@ -603,97 +644,3 @@ html += '</div>'
 html += '</div>'
 
 st.markdown(html, unsafe_allow_html=True)
-
-# ── SHAP tooltip via components.v1.html ───────────────────────────────────────
-# st.markdown strips <script> tags. Instead we use components.v1.html which
-# DOES execute scripts. From inside its iframe we reach window.parent.document
-# to inject the tooltip div and attach mouseover listeners to .game[data-shap]
-# elements that were rendered by st.markdown above.
-components.v1.html("""
-<script>
-(function() {
-    const doc   = window.parent.document;
-    const TIP_W = 580;
-    const OFFSET = 16;
-
-    // Inject tooltip div into the parent document if not already there
-    if (!doc.getElementById('shap-tooltip')) {
-        const style = doc.createElement('style');
-        style.textContent = `
-            #shap-tooltip {
-                display: none;
-                position: fixed;
-                z-index: 99999;
-                background: #fff;
-                border: 1px solid #ddd9d2;
-                border-radius: 10px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.22);
-                padding: 8px;
-                pointer-events: none;
-                width: 580px;
-                max-width: 90vw;
-            }
-            #shap-tooltip img {
-                width: 100%;
-                height: auto;
-                display: block;
-                border-radius: 6px;
-            }
-        `;
-        doc.head.appendChild(style);
-
-        const tip = doc.createElement('div');
-        tip.id = 'shap-tooltip';
-        tip.innerHTML = '<img src="" alt="SHAP explanation"/>';
-        doc.body.appendChild(tip);
-    }
-
-    const tooltip = doc.getElementById('shap-tooltip');
-    const img     = tooltip.querySelector('img');
-
-    function show(e) {
-        const b64 = e.currentTarget.dataset.shap;
-        if (!b64) return;
-        img.src = 'data:image/png;base64,' + b64;
-        tooltip.style.display = 'block';
-        move(e);
-    }
-
-    function move(e) {
-        const vpW  = window.parent.innerWidth;
-        const vpH  = window.parent.innerHeight;
-        const tipH = tooltip.offsetHeight || 420;
-
-        let x = e.clientX + OFFSET;
-        let y = e.clientY + OFFSET;
-
-        if (x + TIP_W > vpW - 8) x = e.clientX - TIP_W - OFFSET;
-        if (y + tipH  > vpH - 8) y = e.clientY - tipH  - OFFSET;
-
-        x = Math.max(8, x);
-        y = Math.max(8, y);
-
-        tooltip.style.left = x + 'px';
-        tooltip.style.top  = y + 'px';
-    }
-
-    function hide() {
-        tooltip.style.display = 'none';
-        img.src = '';
-    }
-
-    function attach() {
-        doc.querySelectorAll('.game[data-shap]').forEach(function(el) {
-            if (el.dataset.shapBound) return;
-            el.dataset.shapBound = '1';
-            el.addEventListener('mouseenter', show);
-            el.addEventListener('mousemove',  move);
-            el.addEventListener('mouseleave', hide);
-        });
-    }
-
-    attach();
-    new MutationObserver(attach).observe(doc.body, { childList: true, subtree: true });
-})();
-</script>
-""", height=0)
