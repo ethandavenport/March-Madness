@@ -117,7 +117,8 @@ def games_for_ordered(region, round_name, slot_pos):
 # ── Layout constants ───────────────────────────────────────────────────────────
 GAME_H  = 80   # px height of one game card
 GAME_MB = 3    # margin-bottom on .game
-COL_PAD = 10   # px padding on the "inner" side of each round-col (connector lives here)
+COL_PAD = 20   # px padding on the "inner" side of each round-col (connector lives here)
+# The vertical bar of connectors is drawn at x = COL_PAD/2, centered in the gap between columns.
 
 R1_TOTAL = 8 * GAME_H + 7 * GAME_MB  # total column height = 663px
 
@@ -179,7 +180,7 @@ h1 {
     border-bottom: 2px solid #d8d4cc;
 }
 .round-header-champ {
-    width: 420px;
+    width: 500px;
     flex-shrink: 0;
     display: flex;
     justify-content: space-around;
@@ -267,14 +268,13 @@ h1 {
 
 /* ── Championship centre ── */
 .champ-col {
-    width: 420px;
+    width: 500px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* negative margins let it bleed over the E8/S16 columns */
-    margin-left: -40px;
-    margin-right: -40px;
+    margin-left: -120px;
+    margin-right: -120px;
     z-index: 2;
     position: relative;
 }
@@ -357,12 +357,17 @@ def game_card(gd):
 
 def make_connector_svg(prev_n, curr_n, rtl):
     """
-    Returns an SVG string that connects prev_n parent game centers to curr_n child centers.
-    The SVG is positioned absolutely inside the round-col's left (or right for rtl) padding.
-    Width = COL_PAD px, height = R1_TOTAL px.
+    Returns an SVG string connecting prev_n parent centers → curr_n child centers.
+    The SVG fills the full COL_PAD-wide padding strip.
+    The vertical bar sits at x = COL_PAD/2 (center of the gap between columns).
+    For LTR: vertical bar at x=COL_PAD/2, horizontal line goes right to x=COL_PAD (column edge).
+    For RTL: vertical bar at x=COL_PAD/2, horizontal line goes left to x=0 (column edge).
     """
     w = COL_PAD
     h = R1_TOTAL
+    xv = w / 2           # vertical bar sits in the middle of the gap
+    xh_ltr = w           # horizontal reaches right edge (into current col) for LTR
+    xh_rtl = 0           # horizontal reaches left edge for RTL
     lines = []
 
     for i in range(curr_n):
@@ -370,11 +375,7 @@ def make_connector_svg(prev_n, curr_n, rtl):
         p1y = game_center_y(i * 2,     prev_n)
         p2y = game_center_y(i * 2 + 1, prev_n)
         my  = (p1y + p2y) / 2
-
-        # For LTR: SVG is in left padding → vertical bar at x=0, horizontal line goes right to x=w
-        # For RTL: SVG is in right padding → vertical bar at x=w, horizontal line goes left to x=0
-        xv = 0 if not rtl else w
-        xh = w if not rtl else 0
+        xh  = xh_ltr if not rtl else xh_rtl
 
         c = "#ccc8c0"
         sw = "1.2"
@@ -441,7 +442,11 @@ def champ_html():
     ff_games   = bracket[bracket["Round"] == "Final Four"].reset_index(drop=True)
     champ_game = bracket[bracket["Round"] == "Championship"].reset_index(drop=True)
 
-    left_set = {"W", "X"}
+    left_set  = {"W", "X"}
+    right_set = {"Y", "Z"}
+    top_left_region  = "W"   # W is top region on left side → goes on top in left FF
+    top_right_region = "Y"   # Y is top region on right side → goes on top in right FF
+
     ff_left = ff_right = None
     for _, row in ff_games.iterrows():
         regions = {str(row.get("Region_A", "")), str(row.get("Region_B", ""))}
@@ -454,31 +459,48 @@ def champ_html():
     if ff_right is None and len(ff_games) > 1:
         ff_right = ff_games.iloc[1]
 
-    def ff_card_html(row):
+    def ff_card_html(row, top_region):
+        """Render FF card with the team from top_region on top."""
         if row is None:
             return ""
         fp = row.get("FProb", float("nan"))
         sp = row.get("SProb", float("nan"))
         sa, sb = int(row["Seed_A"]), int(row["Seed_B"])
-        if sa <= sb:
-            return game_card_parts(row["ATeamName"], sa, row["BTeamName"], sb, fp, sp)
+        ra = str(row.get("Region_A", ""))
+        rb = str(row.get("Region_B", ""))
+        # Put team from top_region on top; if neither matches, fall back to lower seed
+        if ra == top_region:
+            top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
+        elif rb == top_region:
+            top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
+        elif sa <= sb:
+            top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
         else:
-            return game_card_parts(row["BTeamName"], sb, row["ATeamName"], sa, fp, sp)
+            top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
+        return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp)
 
     html = '<div class="champ-col"><div class="champ-inner">'
-    html += f'<div class="champ-ff-col">{ff_card_html(ff_left)}</div>'
+    html += f'<div class="champ-ff-col">{ff_card_html(ff_left, top_left_region)}</div>'
 
-    # Championship game
+    # Championship: left-side winner on top, right-side winner on bottom
     html += '<div class="champ-ncg-col">'
     if not champ_game.empty:
         row  = champ_game.iloc[0]
         fp   = row.get("FProb", float("nan"))
         sp   = row.get("SProb", float("nan"))
         sa, sb = int(row["Seed_A"]), int(row["Seed_B"])
-        if sa <= sb:
+        ra = str(row.get("Region_A", ""))
+        rb = str(row.get("Region_B", ""))
+        # Left-side team (W or X region) goes on top
+        if ra in left_set:
+            tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
+        elif rb in left_set:
+            tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
+        elif sa <= sb:
             tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
         else:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
+
         html += '<div class="champ-game">'
         html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
         if ts <= bs:
@@ -493,7 +515,7 @@ def champ_html():
         html += '</div>'
     html += '</div>'
 
-    html += f'<div class="champ-ff-col">{ff_card_html(ff_right)}</div>'
+    html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'
     html += '</div></div>'
     return html
 
