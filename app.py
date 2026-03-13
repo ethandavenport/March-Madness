@@ -522,33 +522,36 @@ regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region
 left_regions  = [r for r in ["W", "X"] if r in regions]
 right_regions = [r for r in ["Y", "Z"] if r in regions]
 
-# Round header cells — border-bottom only under the box content area, not the connector gap.
-# Column 0: full-width border. Columns 1-3: pad on inner side = connector gap (no border there).
-# We achieve "border only under content" by using a nested span with display:block + border,
-# inset by the COL_PAD on the appropriate side.
+# Round header cells — border only under box content, gaps between rounds.
+# The last cell (E8, index 3) also gets the side-half inner padding so it aligns
+# with the E8 box and leaves a gap at the center.
+SIDE_PAD = 36  # px — inner padding on each side-half, also applied to header row
+
 def make_header_cells(rounds, rtl=False):
     cells = []
     for i, rnd in enumerate(rounds):
-        if i == 0:
-            # No connector gap on the outer edge — border spans full cell
-            inner = (
-                f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
-                f'padding-bottom:5px;text-align:center;">{ROUND_SHORT[rnd]}</span>'
-            )
+        is_last = (i == len(rounds) - 1)
+        # Connector gap offset (left for ltr col 1+, right for rtl col 1+)
+        connector_margin = COL_PAD if i > 0 else 0
+        # Side-half inner padding offset on the innermost (E8) cell
+        side_margin = SIDE_PAD if is_last else 0
+
+        if not rtl:
+            ml = connector_margin
+            mr = side_margin
         else:
-            # Inner side has COL_PAD gap — offset the border to start after the gap
-            if not rtl:
-                inner = (
-                    f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
-                    f'padding-bottom:5px;text-align:center;margin-left:{COL_PAD}px;">'
-                    f'{ROUND_SHORT[rnd]}</span>'
-                )
-            else:
-                inner = (
-                    f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
-                    f'padding-bottom:5px;text-align:center;margin-right:{COL_PAD}px;">'
-                    f'{ROUND_SHORT[rnd]}</span>'
-                )
+            ml = side_margin
+            mr = connector_margin
+
+        margin_style = ""
+        if ml: margin_style += f"margin-left:{ml}px;"
+        if mr: margin_style += f"margin-right:{mr}px;"
+
+        inner = (
+            f'<span style="display:block;border-bottom:2px solid #d8d4cc;'
+            f'padding-bottom:5px;text-align:center;{margin_style}">'
+            f'{ROUND_SHORT[rnd]}</span>'
+        )
         cells.append(f'<div class="round-header-cell">{inner}</div>')
     return "".join(cells)
 
@@ -557,19 +560,19 @@ hdr_right = make_header_cells(REGION_ROUNDS, rtl=True)
 
 headers_html = (
     f'<div class="round-headers-row">'
-    f'<div class="round-headers-left">{hdr_left}</div>'
-    f'<div class="round-headers-right">{hdr_right}</div>'
+    f'<div class="round-headers-left" style="padding-right:{SIDE_PAD}px;">{hdr_left}</div>'
+    f'<div class="round-headers-right" style="padding-left:{SIDE_PAD}px;">{hdr_right}</div>'
     f'</div>'
 )
 
 html = headers_html
 html += '<div class="bracket-wrapper">'
-html += '<div class="side-half" style="padding-right:24px;">'
+html += f'<div class="side-half" style="padding-right:{SIDE_PAD}px;">'
 for r in left_regions:
     html += region_html(r, rtl=False)
 html += '</div>'
 html += champ_html()
-html += '<div class="side-half" style="padding-left:24px;">'
+html += f'<div class="side-half" style="padding-left:{SIDE_PAD}px;">'
 for r in right_regions:
     html += region_html(r, rtl=True)
 html += '</div>'
