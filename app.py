@@ -531,17 +531,15 @@ def make_header_cells(rounds, rtl=False):
     cells = []
     for i, rnd in enumerate(rounds):
         is_last = (i == len(rounds) - 1)
-        # Connector gap offset (left for ltr col 1+, right for rtl col 1+)
-        connector_margin = COL_PAD if i > 0 else 0
-        # Side-half inner padding offset on the innermost (E8) cell
-        side_margin = SIDE_PAD if is_last else 0
-
+        # Left margin: connector gap for cols 1+, but on the last (E8) col the
+        # side-half padding already provides that gap — so use SIDE_PAD instead of
+        # COL_PAD+SIDE_PAD to keep all underlines the same length.
         if not rtl:
-            ml = connector_margin
-            mr = side_margin
+            ml = SIDE_PAD if is_last else (COL_PAD if i > 0 else 0)
+            mr = 0
         else:
-            ml = side_margin
-            mr = connector_margin
+            ml = 0
+            mr = SIDE_PAD if is_last else (COL_PAD if i > 0 else 0)
 
         margin_style = ""
         if ml: margin_style += f"margin-left:{ml}px;"
