@@ -257,6 +257,10 @@ h1 {
     pointer-events: none;
     z-index: 9999;
 }
+.shap-tooltip.tip-left {
+    left: auto;
+    right: 105%;
+}
 .shap-tooltip img {
     width: 100%;
     height: auto;
@@ -362,11 +366,12 @@ def team_row_html(name, seed, model_p, seed_p):
         f'</div>'
     )
 
-def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=None):
+def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=None, tooltip_side="right"):
     """
     fp = P(favorite wins), where favorite = lower seed number.
     match_id: if provided and present in shap_cache, embeds SHAP image as
               a CSS-hover tooltip directly inside the game div.
+    tooltip_side: "right" (default) or "left" — which side the tooltip pops out on.
     """
     if top_seed <= bot_seed:
         model_top, model_bot = fp, 1 - fp
@@ -379,8 +384,9 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=Non
     tooltip_html = ""
     if match_id and match_id in shap_cache:
         b64 = shap_cache[match_id]
+        tip_class = "shap-tooltip tip-left" if tooltip_side == "left" else "shap-tooltip"
         tooltip_html = (
-            f'<div class="shap-tooltip">'
+            f'<div class="{tip_class}">'
             f'<img src="data:image/png;base64,{b64}" alt="SHAP explanation"/>'
             f'</div>'
         )
@@ -393,12 +399,12 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp, match_id=Non
         f'</div>'
     )
 
-def game_card(gd):
+def game_card(gd, tooltip_side="right"):
     row      = gd["row"]
     fp       = row.get("FProb", float("nan"))
     sp       = row.get("SProb", float("nan"))
     match_id = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
-    return game_card_parts(gd["top_name"], gd["top_seed"], gd["bot_name"], gd["bot_seed"], fp, sp, match_id)
+    return game_card_parts(gd["top_name"], gd["top_seed"], gd["bot_name"], gd["bot_seed"], fp, sp, match_id, tooltip_side)
 
 # ── Connector SVG ──────────────────────────────────────────────────────────────
 
@@ -476,8 +482,9 @@ def region_html(region, rtl=False):
             gap    = int(sh - GAME_H)
 
             col_html += f'<div class="game-spacer" style="height:{spacer}px;"></div>'
+            tooltip_side = "left" if rtl else "right"
             for idx, gd in enumerate(games):
-                col_html += game_card(gd)
+                col_html += game_card(gd, tooltip_side)
                 if idx < n - 1:
                     col_html += f'<div class="game-spacer" style="height:{gap}px;"></div>'
 
