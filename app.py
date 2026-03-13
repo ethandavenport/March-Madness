@@ -622,19 +622,15 @@ for r in right_regions:
 html += '</div>'
 html += '</div>'
 
-st.markdown(html, unsafe_allow_html=True)
-
-# ── SHAP tooltip: single floating div + JS to show/hide on hover ──────────────
-# The bracket HTML is rendered inside a Streamlit iframe. We inject a single
-# #shap-tooltip div into that iframe's document.body and use JS mouseover/out
-# events to populate and position it near the cursor.
-st.markdown("""
+# Append tooltip div and JS directly into the same HTML block so everything
+# lives in the same iframe and getElementById can find the tooltip.
+html += '''
 <div id="shap-tooltip"><img src="" alt="SHAP explanation"/></div>
 
 <script>
 (function() {
     const TIP_W = 580;
-    const OFFSET = 16;   // px gap from cursor
+    const OFFSET = 16;
 
     const tooltip = document.getElementById('shap-tooltip');
     const img     = tooltip.querySelector('img');
@@ -655,12 +651,9 @@ st.markdown("""
         let x = e.clientX + OFFSET;
         let y = e.clientY + OFFSET;
 
-        // Flip left if too close to right edge
         if (x + TIP_W > vpW - 8) x = e.clientX - TIP_W - OFFSET;
-        // Flip up if too close to bottom edge
-        if (y + tipH > vpH - 8) y = e.clientY - tipH - OFFSET;
+        if (y + tipH  > vpH - 8) y = e.clientY - tipH  - OFFSET;
 
-        // Clamp to viewport
         x = Math.max(8, x);
         y = Math.max(8, y);
 
@@ -683,9 +676,10 @@ st.markdown("""
         });
     }
 
-    // Attach now and re-attach if Streamlit re-renders the component
     attach();
     new MutationObserver(attach).observe(document.body, { childList: true, subtree: true });
 })();
 </script>
-""", unsafe_allow_html=True)
+'''
+
+st.markdown(html, unsafe_allow_html=True)
