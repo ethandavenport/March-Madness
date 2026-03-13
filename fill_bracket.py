@@ -184,26 +184,30 @@ def _alphabetical_pair(tid1, tid2, seed_lookup):
 def _shap_plot_b64(
     X_scaled_row: pd.DataFrame,
     explainer,
-    team_a: str,
-    team_b: str,
-    pred_prob: float,              # P(team_a wins)
+    team_top: str,   # team from the "top" bracket slot — shown as Team A
+    team_bot: str,   # team from the "bottom" bracket slot — shown as Team B
+    pred_prob: float,              # P(team_top wins)
 ) -> str:
     """
     Generate a SHAP waterfall plot for one game row.
     Returns a base64-encoded PNG string.
+    team_top/team_bot follow bracket slot order, not alphabetical A/B order.
     """
-    favorite = team_a if pred_prob >= 0.5 else team_b
+    favorite = team_top if pred_prob >= 0.5 else team_bot
     fav_prob = max(pred_prob, 1.0 - pred_prob)
 
     shap_vals = explainer.shap_values(X_scaled_row, silent=True)
 
-    # Rename features: var_A → var_{team_a}, var_B → var_{team_b}
+    # Rename features: _A → _{team_top}, _B → _{team_bot}
+    # X_scaled_row columns use A/B based on alphabetical order in the data,
+    # so we need to map those to whichever team is actually A in this row.
+    # The caller passes X_scaled_row with original A/B columns, plus the
+    # team names in slot order; we rename accordingly.
     renamed_features = [
-        col.replace("_A", f"_{team_a}").replace("_B", f"_{team_b}")
+        col.replace("_A", f"_{team_top}").replace("_B", f"_{team_bot}")
         for col in X_scaled_row.columns
     ]
 
-    # Pass data=None so SHAP doesn't append "= {value}" to feature names
     explanation = shap.Explanation(
         values        = shap_vals[0],
         base_values   = explainer.expected_value,
@@ -213,8 +217,16 @@ def _shap_plot_b64(
 
     shap.plots.waterfall(explanation, max_display=10, show=False)
 
-    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_a}")
-    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_b}")
+    # Strip any trailing " = " that SHAP appends to y-axis labels
+    ax = plt.gca()
+    for label in ax.get_yticklabels():
+        txt = label.get_text()
+        if " = " in txt:
+            label.set_text(txt[:txt.rfind(" = ")])
+    ax.figure.canvas.draw()   # force label re-render before saving
+
+    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_top}")
+    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_bot}")
     plt.legend(handles=[red_patch, blue_patch], loc="lower right", fontsize=10)
     plt.title(f"Favorite: {favorite} ({fav_prob*100:.1f}%)", fontsize=14)
     plt.tight_layout()
@@ -236,6 +248,7 @@ def _predict_and_annotate(
     round_label: str,
     seed_lookup: pd.DataFrame,
     explainer=None,
+    top_tids: list = None,   # ordered list of "top-slot" TeamIDs, one per game row
 ) -> tuple[pd.DataFrame, list]:
     """
     Scale, predict, compute FProb/SProb/Lift, pick winners.
@@ -272,12 +285,34 @@ def _predict_and_annotate(
     if explainer is not None:
         shap_plots = []
         for i, (_, row) in enumerate(matchup_df.iterrows()):
+            # Determine which team is "top" (came from earlier bracket slot)
+            if top_tids is not None and i < len(top_tids):
+                top_tid = str(top_tids[i])
+            else:
+                # Fallback: lower seed is top
+                top_tid = str(row["ATeamID"]) if row["Seed_A"] <= row["Seed_B"] else str(row["BTeamID"])
+
+            if str(row["ATeamID"]) == top_tid:
+                team_top, team_bot = row["ATeamName"], row["BTeamName"]
+                pred_prob_top = float(row["AProb"])
+                # X_scaled_row already has _A = top, _B = bot
+                x_row = X_scaled.iloc[[i]]
+            else:
+                team_top, team_bot = row["BTeamName"], row["ATeamName"]
+                pred_prob_top = 1.0 - float(row["AProb"])
+                # Swap _A/_B columns so _A always corresponds to team_top
+                swapped_cols = {
+                    c: c[:-2] + "_A" if c.endswith("_B") else c[:-2] + "_B" if c.endswith("_A") else c
+                    for c in X_scaled.columns
+                }
+                x_row = X_scaled.iloc[[i]].rename(columns=swapped_cols)
+
             b64 = _shap_plot_b64(
-                X_scaled_row = X_scaled.iloc[[i]],
+                X_scaled_row = x_row,
                 explainer    = explainer,
-                team_a       = row["ATeamName"],
-                team_b       = row["BTeamName"],
-                pred_prob    = float(row["AProb"]),
+                team_top     = team_top,
+                team_bot     = team_bot,
+                pred_prob    = pred_prob_top,
             )
             shap_plots.append(b64)
         matchup_df["SHAPPlot"] = shap_plots
@@ -338,80 +373,92 @@ def _run_bracket(
     region_champs = {}   # region -> TeamID
 
     for region in region_order:
-        # Build R1 pairs for this region
+        # R1: top team = lower seed (s1 from each pair)
         r1_pairs = [
             _alphabetical_pair(team_map[(region, s1)], team_map[(region, s2)], seed_lookup)
             for s1, s2 in _R1_SEED_PAIRS
         ]
+        r1_top_tids = [team_map[(region, s1)] for s1, s2 in _R1_SEED_PAIRS]
 
         matchup_df = _build_matchup_rows(r1_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 1")
         matchup_df, r1_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 1", seed_lookup, explainer
+            lift_thresholds, "Round 1", seed_lookup, explainer,
+            top_tids=r1_top_tids
         )
         all_dfs.append(matchup_df)
 
-        # R2
+        # R2: top = winner from the 'a' (first) slot of each fold pair
         r2_pairs = [_alphabetical_pair(r1_winners[a], r1_winners[b], seed_lookup)
                     for a, b in _R2_FOLD]
+        r2_top_tids = [r1_winners[a] for a, b in _R2_FOLD]
         matchup_df = _build_matchup_rows(r2_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 2")
         matchup_df, r2_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 2", seed_lookup, explainer
+            lift_thresholds, "Round 2", seed_lookup, explainer,
+            top_tids=r2_top_tids
         )
         all_dfs.append(matchup_df)
 
         # Sweet 16
         r3_pairs = [_alphabetical_pair(r2_winners[a], r2_winners[b], seed_lookup)
                     for a, b in _R3_FOLD]
+        r3_top_tids = [r2_winners[a] for a, b in _R3_FOLD]
         matchup_df = _build_matchup_rows(r3_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 3 (Sweet Sixteen)")
         matchup_df, r3_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup, explainer
+            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup, explainer,
+            top_tids=r3_top_tids
         )
         all_dfs.append(matchup_df)
 
         # Elite 8
         r4_pairs = [_alphabetical_pair(r3_winners[a], r3_winners[b], seed_lookup)
                     for a, b in _R4_FOLD]
+        r4_top_tids = [r3_winners[a] for a, b in _R4_FOLD]
         matchup_df = _build_matchup_rows(r4_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 4 (Elite Eight)")
         matchup_df, r4_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup, explainer
+            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup, explainer,
+            top_tids=r4_top_tids
         )
         all_dfs.append(matchup_df)
 
         region_champs[region] = r4_winners[0]
 
     # ------------------------------------------------------------------
-    # Final Four
+    # Final Four: top = first region champ in each FF pair
     # ------------------------------------------------------------------
     ff_pairs = [
         _alphabetical_pair(region_champs[ra], region_champs[rb], seed_lookup)
         for ra, rb in _FF_PAIRS
         if ra in region_champs and rb in region_champs
     ]
+    ff_top_tids = [region_champs[ra] for ra, rb in _FF_PAIRS
+                   if ra in region_champs and rb in region_champs]
     matchup_df = _build_matchup_rows(ff_pairs, seed_lookup, stats_lookup,
                                      stat_cols, season, "Final Four")
     matchup_df, ff_winners = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Final Four", seed_lookup, explainer
+        lift_thresholds, "Final Four", seed_lookup, explainer,
+        top_tids=ff_top_tids
     )
     all_dfs.append(matchup_df)
 
     # ------------------------------------------------------------------
-    # Championship
+    # Championship: top = first FF winner
     # ------------------------------------------------------------------
     champ_pair = [_alphabetical_pair(ff_winners[0], ff_winners[1], seed_lookup)]
     matchup_df = _build_matchup_rows(champ_pair, seed_lookup, stats_lookup,
                                      stat_cols, season, "Championship")
     matchup_df, _ = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Championship", seed_lookup, explainer
+        lift_thresholds, "Championship", seed_lookup, explainer,
+        top_tids=[ff_winners[0]]
     )
     all_dfs.append(matchup_df)
 
