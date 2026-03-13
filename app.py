@@ -138,7 +138,7 @@ st.markdown("""
 html, body, [data-testid="stAppViewContainer"] { background: #f5f3ef; color: #1a1a1a; }
 [data-testid="stAppViewContainer"] { padding: 0; }
 [data-testid="stHeader"] { background: transparent; }
-.block-container { padding: 2rem 1rem 4rem 1rem; max-width: 100%; }
+.block-container { padding: 2rem 0.25rem 4rem 0.25rem; max-width: 100%; }
 
 h1 {
     font-family: 'Bebas Neue', sans-serif;
@@ -181,19 +181,13 @@ h1 {
     padding-bottom: 5px;
     /* no border-bottom here — applied via inline style in Python to match box width */
 }
-/* champ placeholder — invisible, just holds space so headers don't stretch */
-.round-header-champ-spacer {
-    width: 700px;
-    flex-shrink: 0;
-    margin-left: -200px;
-    margin-right: -200px;
-}
 
 /* ── Main bracket wrapper ── */
 .bracket-wrapper {
     display: flex;
     align-items: stretch;
     width: 100%;
+    position: relative;  /* needed for absolute champ-col */
 }
 .side-half {
     flex: 1;
@@ -263,15 +257,15 @@ h1 {
 
 /* ── Championship centre ── */
 .champ-col {
-    width: 700px;
-    flex-shrink: 0;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 560px;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: -200px;
-    margin-right: -200px;
-    z-index: 2;
-    position: relative;
 }
 .champ-inner {
     display: flex;
@@ -564,7 +558,6 @@ hdr_right = make_header_cells(list(reversed(REGION_ROUNDS)), rtl=True)
 headers_html = (
     f'<div class="round-headers-row">'
     f'<div class="round-headers-left">{hdr_left}</div>'
-    f'<div class="round-header-champ-spacer"></div>'
     f'<div class="round-headers-right">{hdr_right}</div>'
     f'</div>'
 )
