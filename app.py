@@ -408,10 +408,11 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
                     actual_bot=None, actual_bot_seed=None, actual_bot_tid=None,
                     top_tid=None, bot_tid=None):
     """
-    Renders a game card.
-    actual_top/actual_bot: the team that actually won the source slot for the
-                           top/bottom team. If None, game not yet played (neutral).
-    top_tid/bot_tid: TeamIDs of the predicted teams, for correct/wrong comparison.
+    actual_top/actual_bot: the two actual teams from df for this slot.
+    actual_top = df's A team, actual_bot = df's B team (not top/bot ordered).
+    We check whether each predicted team (top_tid, bot_tid) appears in
+    {actual_top_tid, actual_bot_tid}. If yes → green. If no → strikethrough
+    and show the actual team that should be there in red.
     """
     if top_seed <= bot_seed:
         model_top, model_bot = fp, 1 - fp
@@ -421,21 +422,45 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
         seed_top_p, seed_bot_p = 1 - sp, sp
     hdr = '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
 
-    def _team_state(team_tid, actual_tid):
-        if actual_tid is None:
-            return "neutral"
-        return "correct" if str(team_tid) == str(actual_tid) else "wrong"
+    actual_tids = {t for t in [actual_top_tid, actual_bot_tid] if t is not None}
 
-    state_top = _team_state(top_tid, actual_top_tid)
-    state_bot = _team_state(bot_tid, actual_bot_tid)
+    def _state(tid):
+        if not actual_tids:
+            return "neutral"
+        return "correct" if str(tid) in actual_tids else "wrong"
+
+    def _missing_actual(tid):
+        """Return the actual team that replaced this predicted team."""
+        # The wrong predicted team should be replaced by whichever actual team
+        # is not accounted for by the other predicted team.
+        other_predicted = bot_tid if str(tid) == str(top_tid) else top_tid
+        # If the other predicted team IS one of the actual teams, the missing
+        # actual is the other one. If neither predicted team is in the actual
+        # game, show whichever actual team has the closer seed.
+        if actual_top_tid and str(other_predicted) == str(actual_top_tid):
+            return actual_bot, actual_bot_seed
+        if actual_bot_tid and str(other_predicted) == str(actual_bot_tid):
+            return actual_top, actual_top_seed
+        # Neither predicted team is correct — show the actual team on same side
+        # (top predicted → show actual_top, bot predicted → show actual_bot)
+        if str(tid) == str(top_tid):
+            return actual_top, actual_top_seed
+        return actual_bot, actual_bot_seed
+
+    state_top = _state(top_tid)
+    state_bot = _state(bot_tid)
 
     above_html = below_html = ""
-    if state_top == "wrong" and actual_top is not None:
-        seed_str = f"{int(actual_top_seed)} " if actual_top_seed is not None else ""
-        above_html = f'<div class="actual-winner above">{seed_str}{actual_top}</div>'
-    if state_bot == "wrong" and actual_bot is not None:
-        seed_str = f"{int(actual_bot_seed)} " if actual_bot_seed is not None else ""
-        below_html = f'<div class="actual-winner below">{seed_str}{actual_bot}</div>'
+    if state_top == "wrong":
+        actual_name, actual_seed_val = _missing_actual(top_tid)
+        if actual_name:
+            seed_str = f"{int(actual_seed_val)} " if actual_seed_val is not None else ""
+            above_html = f'<div class="actual-winner above">{seed_str}{actual_name}</div>'
+    if state_bot == "wrong":
+        actual_name, actual_seed_val = _missing_actual(bot_tid)
+        if actual_name:
+            seed_str = f"{int(actual_seed_val)} " if actual_seed_val is not None else ""
+            below_html = f'<div class="actual-winner below">{seed_str}{actual_name}</div>'
 
     tooltip_html = ""
     if match_id and match_id in shap_cache:
@@ -468,19 +493,14 @@ def game_card(gd, tooltip_side="right"):
 
     if match_id and match_id in results_cache:
         rc = results_cache[match_id]
-
         def _clean(v):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
-
-        # ActualA/B align to ATeamID/BTeamID in the bracket row.
-        # Map to top/bot using TeamID.
-        a_tid = str(row.get("ATeamID", ""))
-        if top_tid == a_tid:
-            at_n, at_s, at_t = _clean(rc.get("ActualA")),     _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
-            ab_n, ab_s, ab_t = _clean(rc.get("ActualB")),     _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
-        else:
-            at_n, at_s, at_t = _clean(rc.get("ActualB")),     _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
-            ab_n, ab_s, ab_t = _clean(rc.get("ActualA")),     _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
+        at_n = _clean(rc.get("ActualA"))
+        at_s = _clean(rc.get("ActualASeed"))
+        at_t = _clean(rc.get("ActualATid"))
+        ab_n = _clean(rc.get("ActualB"))
+        ab_s = _clean(rc.get("ActualBSeed"))
+        ab_t = _clean(rc.get("ActualBTid"))
 
     return game_card_parts(
         gd["top_name"], gd["top_seed"], gd["bot_name"], gd["bot_seed"],
@@ -606,22 +626,17 @@ def champ_html():
     if ff_right is None and len(ff_games) > 1:
         ff_right = ff_games.iloc[1]
 
-    def _get_per_team_actuals(mid, team_a_name, team_a_id, team_b_name, team_b_id):
-        """Return (at_n,at_s,at_t, ab_n,ab_s,ab_t, top_tid, bot_tid) for a FF/NCG card."""
+    def _get_actuals(mid):
+        """Return (at_n,at_s,at_t, ab_n,ab_s,ab_t) from results_cache."""
         if not mid or mid not in results_cache:
-            return None,None,None, None,None,None, None,None
+            return None,None,None, None,None,None
         rc = results_cache[mid]
         def _clean(v):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
-        # A side of results_cache corresponds to ATeamID in the bracket row
-        aid = str(rc.get("ATeamID", ""))
-        if str(team_a_id) == aid:
-            at_n,at_s,at_t = _clean(rc.get("ActualA")),_clean(rc.get("ActualASeed")),_clean(rc.get("ActualATid"))
-            ab_n,ab_s,ab_t = _clean(rc.get("ActualB")),_clean(rc.get("ActualBSeed")),_clean(rc.get("ActualBTid"))
-        else:
-            at_n,at_s,at_t = _clean(rc.get("ActualB")),_clean(rc.get("ActualBSeed")),_clean(rc.get("ActualBTid"))
-            ab_n,ab_s,ab_t = _clean(rc.get("ActualA")),_clean(rc.get("ActualASeed")),_clean(rc.get("ActualATid"))
-        return at_n,at_s,at_t, ab_n,ab_s,ab_t, str(team_a_id), str(team_b_id)
+        return (
+            _clean(rc.get("ActualA")),    _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid")),
+            _clean(rc.get("ActualB")),    _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid")),
+        )
 
     def ff_card_html(row, top_region):
         if row is None:
@@ -645,8 +660,7 @@ def champ_html():
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
             top_id, bot_id = str(row["BTeamID"]), str(row["ATeamID"])
 
-        at_n,at_s,at_t, ab_n,ab_s,ab_t, _,__ = _get_per_team_actuals(
-            mid, top_n, top_id, bot_n, bot_id)
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
         return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
@@ -678,49 +692,20 @@ def champ_html():
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
             t_id, b_id = str(row["BTeamID"]), str(row["ATeamID"])
 
-        at_n,at_s,at_t, ab_n,ab_s,ab_t, _,__ = _get_per_team_actuals(
-            mid, tn, t_id, bn, b_id)
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
 
-        def _state(tid, actual_tid):
-            if actual_tid is None: return "neutral"
-            return "correct" if str(tid) == str(actual_tid) else "wrong"
+        card = game_card_parts(tn, ts, bn, bs, fp, sp, mid,
+                               actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
+                               actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
+                               top_tid=t_id, bot_tid=b_id)
 
-        state_top = _state(t_id, at_t)
-        state_bot = _state(b_id, ab_t)
-
-        above_html = below_html = ""
-        if state_top == "wrong" and at_n:
-            seed_str = f"{int(at_s)} " if at_s else ""
-            above_html = f'<div class="actual-winner above">{seed_str}{at_n}</div>'
-        if state_bot == "wrong" and ab_n:
-            seed_str = f"{int(ab_s)} " if ab_s else ""
-            below_html = f'<div class="actual-winner below">{seed_str}{ab_n}</div>'
-
-        tooltip_html = ""
-        if mid and mid in shap_cache:
-            tooltip_html = (
-                f'<div class="shap-tooltip">'
-                f'<img src="data:image/png;base64,{shap_cache[mid]}" alt="SHAP explanation"/>'
-                f'</div>'
-            )
-
-        if ts <= bs:
-            model_top, model_bot = fp, 1 - fp
-            seed_top_p, seed_bot_p = sp, 1 - sp
-        else:
-            model_top, model_bot = 1 - fp, fp
-            seed_top_p, seed_bot_p = 1 - sp, sp
-
-        html += '<div class="champ-game game">'
-        html += above_html
-        html += '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
-        html += team_row_html(tn, ts, model_top, seed_top_p, state=state_top)
-        html += team_row_html(bn, bs, model_bot, seed_bot_p, state=state_bot)
+        # Insert champion banner before closing </div>
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
-        html += f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
-        html += f'{below_html}{tooltip_html}'
-        html += '</div>'
+        banner   = f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
+        card     = card[:-len("</div>")] + banner + "</div>"
+        card     = card.replace('<div class="game">', '<div class="champ-game game">', 1)
+        html    += card
     html += '</div>'
 
     html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'

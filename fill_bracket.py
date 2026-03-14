@@ -849,61 +849,41 @@ def fill_bracket(
                     "winner_tid":  str(row["ATeamID"])  if a_won else str(row["BTeamID"]),
                 }
 
-            # Build a lookup: TeamID -> SlotID they won to get to the bracket
-            # For each game row, the Selected team won that SlotID.
-            # We key by TeamID to avoid name-matching issues.
-            selected_tid_to_slot = {}
-            for _, brow in bracket.iterrows():
-                sid = brow.get("SlotID")
-                if sid is None:
-                    continue
-                # Which team was selected (predicted winner)?
-                if brow["Selected"] == brow["ATeamName"]:
-                    selected_tid_to_slot[str(brow["ATeamID"])] = sid
-                else:
-                    selected_tid_to_slot[str(brow["BTeamID"])] = sid
+            # Build lookup: SlotID -> actual game row from df
+            slot_to_df_row = {}
+            for _, dfrow in df_season.iterrows():
+                sid = dfrow.get("SlotID")
+                if sid:
+                    slot_to_df_row[sid] = dfrow
 
-            # Build per-team annotations
             actual_a_names, actual_a_seeds, actual_a_tids = [], [], []
             actual_b_names, actual_b_seeds, actual_b_tids = [], [], []
 
             for _, row in bracket.iterrows():
                 round_label = str(row.get("Round", ""))
 
-                # R1: teams are seeded in directly — no source slot
+                # R1: no annotation
                 if round_label == "Round 1":
-                    actual_a_names.append(None)
-                    actual_a_seeds.append(None)
-                    actual_a_tids.append(None)
-                    actual_b_names.append(None)
-                    actual_b_seeds.append(None)
-                    actual_b_tids.append(None)
+                    actual_a_names.append(None); actual_a_seeds.append(None); actual_a_tids.append(None)
+                    actual_b_names.append(None); actual_b_seeds.append(None); actual_b_tids.append(None)
                     continue
 
-                a_tid = str(row["ATeamID"])
-                b_tid = str(row["BTeamID"])
+                sid = row.get("SlotID")
+                dfrow = slot_to_df_row.get(sid)
 
-                # Source slot = the slot each team won to get here
-                src_a = selected_tid_to_slot.get(a_tid)
-                src_b = selected_tid_to_slot.get(b_tid)
+                if dfrow is None:
+                    actual_a_names.append(None); actual_a_seeds.append(None); actual_a_tids.append(None)
+                    actual_b_names.append(None); actual_b_seeds.append(None); actual_b_tids.append(None)
+                    continue
 
-                def _get_actual(src):
-                    if src is None:
-                        return None, None, None
-                    info = slot_lookup.get(src)
-                    if info is None:
-                        return None, None, None
-                    return info["winner_name"], info["winner_seed"], info["winner_tid"]
-
-                an, as_, at = _get_actual(src_a)
-                bn, bs_, bt = _get_actual(src_b)
-
-                actual_a_names.append(an)
-                actual_a_seeds.append(as_)
-                actual_a_tids.append(at)
-                actual_b_names.append(bn)
-                actual_b_seeds.append(bs_)
-                actual_b_tids.append(bt)
+                # The two actual teams in this slot game
+                # Store as ActualA = df's A team, ActualB = df's B team
+                actual_a_names.append(str(dfrow["ATeamName"]))
+                actual_a_seeds.append(int(float(dfrow["Seed_A"])))
+                actual_a_tids.append(str(dfrow["ATeamID"]))
+                actual_b_names.append(str(dfrow["BTeamName"]))
+                actual_b_seeds.append(int(float(dfrow["Seed_B"])))
+                actual_b_tids.append(str(dfrow["BTeamID"]))
 
             bracket["ActualA"]      = actual_a_names
             bracket["ActualASeed"]  = actual_a_seeds
