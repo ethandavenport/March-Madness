@@ -828,26 +828,8 @@ with tab_probs:
         available_years = []
 
     if adv_all is not None:
-        qp = st.query_params
-
-        # Read state from URL — year, sort col, sort direction
-        default_year = available_years[0]
-        try:
-            selected_year = int(qp.get("adv_year", default_year))
-            if selected_year not in available_years:
-                selected_year = default_year
-        except (ValueError, TypeError):
-            selected_year = default_year
-
-        init_sort_col = qp.get("adv_sc", "Final Four")
-        init_sort_asc = qp.get("adv_sa", "0") == "1"
-
-        adv = adv_all[adv_all["Season"] == selected_year].copy()
-
         round_cols   = ["Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship", "Champion"]
         display_cols = ["TeamName", "SeedNum"] + round_cols
-        adv_display  = adv[display_cols].copy().rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
-
         col_labels = {
             "Team": "Team", "Seed": "Seed",
             "Round of 32": "R32", "Sweet 16": "Sweet 16", "Elite 8": "Elite Eight",
@@ -855,16 +837,23 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        rows_json        = json.dumps(adv_display.astype(object).where(adv_display.notna(), None).to_dict(orient="records"))
-        cols_json        = json.dumps(all_cols)
-        labels_json      = json.dumps(col_labels)
-        years_json       = json.dumps([int(y) for y in available_years])
-        init_col_json    = json.dumps(init_sort_col)
-        init_asc_json    = json.dumps(init_sort_asc)
-        sel_year_json    = json.dumps(int(selected_year))
+        # Serialize ALL years' data into JS — year switching handled entirely in JS,
+        # no Streamlit rerun needed, no page reload, tab state preserved.
+        all_years_data = {}
+        for yr in available_years:
+            adv_yr = adv_all[adv_all["Season"] == yr][display_cols].copy()
+            adv_yr = adv_yr.rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
+            adv_yr = adv_yr.astype(object).where(adv_yr.notna(), None)
+            all_years_data[int(yr)] = adv_yr.to_dict(orient="records")
 
-        n_rows     = len(adv_display)
-        est_height = n_rows * 33 + 120   # extra for header row above table
+        all_data_json = json.dumps(all_years_data)
+        cols_json     = json.dumps(all_cols)
+        labels_json   = json.dumps(col_labels)
+        years_json    = json.dumps([int(y) for y in available_years])
+        init_year_json = json.dumps(int(available_years[0]))
+
+        n_rows     = max(len(v) for v in all_years_data.values())
+        est_height = n_rows * 33 + 120
 
         table_component = f"""
 <!DOCTYPE html>
@@ -938,15 +927,16 @@ with tab_probs:
 </table></div></div>
 
 <script>
-const ROWS      = {rows_json};
+const ALL_DATA  = {all_data_json};
 const ALL_COLS  = {cols_json};
 const LABELS    = {labels_json};
 const YEARS     = {years_json};
 const TEXT_COLS = new Set(["Team", "Seed"]);
-const CUR_YEAR  = {sel_year_json};
 
-let sortCol = {init_col_json};
-let sortAsc = {init_asc_json};
+let curYear = {init_year_json};
+let rows    = ALL_DATA[curYear];
+let sortCol = "Final Four";
+let sortAsc = false;
 
 // Populate year dropdown
 const sel = document.getElementById("year-select");
@@ -954,18 +944,16 @@ YEARS.forEach(y => {{
   const opt = document.createElement("option");
   opt.value = y;
   opt.textContent = y;
-  if (y === CUR_YEAR) opt.selected = true;
+  if (y === curYear) opt.selected = true;
   sel.appendChild(opt);
 }});
 
-// Year change: write params then reload parent
+// Year change: just swap data and re-render, no reload
 sel.addEventListener("change", () => {{
-  const url = new URL(window.parent.location.href);
-  url.searchParams.set("adv_year", sel.value);
-  url.searchParams.set("adv_sc",   sortCol);
-  url.searchParams.set("adv_sa",   sortAsc ? "1" : "0");
-  window.parent.history.replaceState({{}}, "", url.toString());
-  window.parent.location.reload();
+  curYear = parseInt(sel.value);
+  rows    = ALL_DATA[curYear];
+  document.getElementById("title").textContent = curYear + " Tournament";
+  render();
 }});
 
 function pctStyle(v) {{
@@ -980,13 +968,6 @@ function pctStyle(v) {{
 function fmtPct(v) {{
   if (v === null || v === undefined || isNaN(+v)) return "—";
   return (v * 100).toFixed(1) + "%";
-}}
-
-function saveSort() {{
-  const url = new URL(window.parent.location.href);
-  url.searchParams.set("adv_sc", sortCol);
-  url.searchParams.set("adv_sa", sortAsc ? "1" : "0");
-  window.parent.history.replaceState({{}}, "", url.toString());
 }}
 
 function render() {{
@@ -1018,14 +999,13 @@ function render() {{
         sortCol = col;
         sortAsc = TEXT_COLS.has(col);
       }}
-      saveSort();
       render();
     }});
     tr.appendChild(th);
   }});
   thead.appendChild(tr);
 
-  const sorted = [...ROWS].sort((a, b) => {{
+  const sorted = [...rows].sort((a, b) => {{
     const va = a[sortCol], vb = b[sortCol];
     if (va === null || va === undefined) return 1;
     if (vb === null || vb === undefined) return -1;
