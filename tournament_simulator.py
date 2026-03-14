@@ -23,7 +23,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
 from moe_classifier import MixtureOfExperts, split_n_scale
 
@@ -76,7 +75,8 @@ def stats_df_from_matchups(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
 
     Returns (stats_df, base_feature_cols).
     """
-    meta = {"Season", "ATeamName", "BTeamName", "AWon"}
+    meta = {"Season", "ATeamName", "BTeamName", "AWon",
+            "ATeamID", "BTeamID", "Region_A", "Region_B", "Round", "SlotID"}
 
     a_feat_cols = [c for c in df.columns if c.endswith("_A") and c not in meta]
     b_feat_cols = [c for c in df.columns if c.endswith("_B") and c not in meta]
@@ -172,7 +172,7 @@ def build_prob_matrix(
 
     # --- Train on all years except target season ---
     train_df_raw = df[df["Season"] != season].copy()
-    X_tr, _, y_tr, _, _, _ = split_n_scale(train_df_raw)
+    X_tr, _, y_tr, _, _, _, scaler = split_n_scale(train_df_raw)
 
     model = MixtureOfExperts(**model_kwargs)
     model.fit(X_tr, y_tr)
@@ -190,20 +190,10 @@ def build_prob_matrix(
 
     teams = season_seeds["TeamName"].tolist()
 
-    # --- Fit scaler on training stats only ---
-    train_seasons = df[df["Season"] != season]["Season"].unique()
-    train_stats = stats_df[stats_df["Season"].isin(train_seasons)]
-
-    paired_cols = [f"{f}_A" for f in base_cols] + [f"{f}_B" for f in base_cols]
-
-    # Each training team row becomes a scaler-fitting row with itself on both sides
-    scaler_rows = train_stats[base_cols].rename(
-        columns={f: f"{f}_A" for f in base_cols}
-    ).copy()
-    for f in base_cols:
-        scaler_rows[f"{f}_B"] = train_stats[f].values
-    scaler = StandardScaler()
-    scaler.fit(scaler_rows[paired_cols])
+    # --- Feature columns (same order the scaler was fit on) ---
+    paired_cols = list(X_tr.columns)
+    # Derive base feature names from the _A columns (strips suffix)
+    base_cols = [c[:-2] for c in paired_cols if c.endswith("_A")]
 
     # --- Index stats for fast lookup ---
     stats_index = stats_df.set_index(["Season", "TeamName"])
@@ -218,9 +208,17 @@ def build_prob_matrix(
             if i >= j:
                 continue
 
+            # Enforce alphabetical A/B assignment to match training convention
+            if team_a <= team_b:
+                t_a, t_b = team_a, team_b
+                flipped = False
+            else:
+                t_a, t_b = team_b, team_a
+                flipped = True
+
             try:
-                row_a = stats_index.loc[(season, team_a)]
-                row_b = stats_index.loc[(season, team_b)]
+                row_a = stats_index.loc[(season, t_a)]
+                row_b = stats_index.loc[(season, t_b)]
             except KeyError:
                 matrix.loc[team_a, team_b] = 0.5
                 matrix.loc[team_b, team_a] = 0.5
@@ -235,8 +233,15 @@ def build_prob_matrix(
             )
 
             p_a = model.predict_proba(matchup_scaled)[0, 1]
-            matrix.loc[team_a, team_b] = p_a
-            matrix.loc[team_b, team_a] = 1.0 - p_a
+
+            # p_a is P(t_a wins); map back to original team_a/team_b
+            if not flipped:
+                matrix.loc[team_a, team_b] = p_a
+                matrix.loc[team_b, team_a] = 1.0 - p_a
+            else:
+                # t_a = team_b, so p_a = P(team_b wins)
+                matrix.loc[team_a, team_b] = 1.0 - p_a
+                matrix.loc[team_b, team_a] = p_a
 
     return matrix, season_seeds, model
 

@@ -8,7 +8,8 @@ from sklearn.utils.multiclass import unique_labels
 
 
 # Columns that are metadata, not features
-_META_COLS = {"Season", "ATeamName", "BTeamName", "AWon"}
+_META_COLS = {"Season", "ATeamName", "BTeamName", "AWon",
+              "ATeamID", "BTeamID", "Region_A", "Region_B", "Round", "SlotID"}
 
 
 def split_n_scale(df, test_seasons=None, test_size=0.2, random_state=42):
@@ -82,7 +83,7 @@ def split_n_scale(df, test_seasons=None, test_size=0.2, random_state=42):
         columns=feature_cols
     )
 
-    return X_train_scaled, X_test_scaled, y_train, y_test, train_df, test_df
+    return X_train_scaled, X_test_scaled, y_train, y_test, train_df, test_df, scaler
 
 
 def lasso_cols(X_train_scaled, y_train, alpha):

@@ -824,8 +824,8 @@ with tab_probs:
 
         col_labels = {
             "Team": "Team", "Seed": "Seed",
-            "Round of 32": "R32", "Sweet 16": "S16", "Elite 8": "E8",
-            "Final Four": "FF", "Championship": "Champ'ship", "Champion": "Champion",
+            "Round of 32": "R32", "Sweet 16": "Sweet 16", "Elite 8": "Elite Eight",
+            "Final Four": "Final Four", "Championship": "Championship", "Champion": "Champion",
         }
         all_cols = ["Team", "Seed"] + round_cols
 

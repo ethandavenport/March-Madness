@@ -663,7 +663,7 @@ def fill_bracket(
     # --- Train MoE on df excluding this year ---
     print(f"[{season}] Training model...")
     train_df = df[df["Season"] != season].copy()
-    X_tr, _, y_tr, _, _, _ = split_n_scale(train_df)
+    X_tr, _, y_tr, _, _, _, _ = split_n_scale(train_df)
 
     model = MixtureOfExperts(**(model_kwargs or {}))
     model.fit(X_tr, y_tr)
