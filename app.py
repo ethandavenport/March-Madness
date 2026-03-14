@@ -748,7 +748,40 @@ def make_header_cells(rounds, rtl=False):
         cells.append(f'<div class="round-header-cell">{inner}</div>')
     return "".join(cells)
 
-tab_bracket, tab_probs = st.tabs(["🏀 Bracket", "📊 Round Probabilities"])
+# ── Custom tab styling ─────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Make Streamlit tabs span full width as solid rectangles */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0px;
+    border-bottom: 2px solid #ddd9d2;
+}
+.stTabs [data-baseweb="tab"] {
+    flex: 1;
+    justify-content: center;
+    padding: 12px 0;
+    border-radius: 0;
+    border: 1px solid #ddd9d2;
+    border-bottom: none;
+    background: #f5f3ef;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #888;
+    margin: 0;
+}
+.stTabs [aria-selected="true"] {
+    background: #fff !important;
+    color: #c97b00 !important;
+    border-top: 2px solid #c97b00 !important;
+}
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+.stTabs [data-baseweb="tab-border"]    { display: none; }
+</style>
+""", unsafe_allow_html=True)
+
+tab_bracket, tab_probs = st.tabs(["⛶  Bracket", "▦  Round Probabilities"])
 
 with tab_bracket:
     hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
@@ -777,9 +810,11 @@ with tab_bracket:
     st.markdown(html, unsafe_allow_html=True)
 
 with tab_probs:
+    import streamlit.components.v1 as components
+
     adv_path = "adv_2025.csv"
     if not os.path.exists(adv_path):
-        st.error(f"Could not find {adv_path}. Make sure it's in the same directory as app.py.")
+        st.error(f"Could not find {adv_path}.")
     else:
         adv = pd.read_csv(adv_path)
 
@@ -790,98 +825,145 @@ with tab_probs:
         col_labels = {
             "Team": "Team", "Seed": "Seed",
             "Round of 32": "R32", "Sweet 16": "S16", "Elite 8": "E8",
-            "Final Four": "FF", "Championship": "Championship", "Champion": "Champion",
+            "Final Four": "FF", "Championship": "Champ'ship", "Champion": "Champion",
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        # Sort controls
-        sc1, sc2, _ = st.columns([2, 1.5, 6])
-        with sc1:
-            sort_col = st.selectbox(
-                "Sort by",
-                options=all_cols,
-                format_func=lambda c: col_labels[c],
-                index=all_cols.index("Champion"),
-                key="adv_sort_col",
-            )
-        with sc2:
-            default_asc = sort_col in ("Team", "Seed")
-            sort_asc = st.selectbox(
-                "Order",
-                options=[True, False],
-                format_func=lambda x: "Ascending ↑" if x else "Descending ↓",
-                index=0 if default_asc else 1,
-                key="adv_sort_asc",
-            )
+        # Serialize data as JSON for JS
+        import json
+        rows_data = adv_display.to_dict(orient="records")
+        rows_json = json.dumps(rows_data)
+        cols_json = json.dumps(all_cols)
+        labels_json = json.dumps(col_labels)
 
-        adv_sorted = adv_display.sort_values(sort_col, ascending=sort_asc)
-
-        def pct_to_style(val):
-            if pd.isna(val):
-                return "background:transparent;"
-            v = float(val)
-            r = int(255 - (255 - 201) * v)
-            g = int(253 - (253 - 123) * v)
-            b = int(245 - (245 -   0) * v)
-            text = "#fff" if v > 0.5 else "#333"
-            return f"background:rgb({r},{g},{b});color:{text};"
-
-        def fmt_pct(val):
-            return "—" if pd.isna(val) else f"{float(val)*100:.1f}%"
-
-        # Build header
-        header_cells = ""
-        for col in all_cols:
-            label  = col_labels[col]
-            active = col == sort_col
-            arrow  = ("↓" if not sort_asc else "↑") if active else ""
-            align  = "left" if col in ("Team", "Seed") else "center"
-            color  = "color:#c97b00;" if active else ""
-            header_cells += (
-                f'<th style="padding:9px 14px;text-align:{align};font-family:\'DM Sans\',sans-serif;'
-                f'font-size:0.70rem;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;'
-                f'border-bottom:2px solid #ddd9d2;white-space:nowrap;{color}">'
-                f'{label}{" " + arrow if arrow else ""}</th>'
-            )
-
-        # Build rows
-        rows_html = ""
-        for i, (_, row) in enumerate(adv_sorted.iterrows()):
-            row_bg = "#fff" if i % 2 == 0 else "#faf8f4"
-            cells  = ""
-            for col in all_cols:
-                val = row[col]
-                if col == "Team":
-                    cells += (
-                        f'<td style="padding:7px 14px;font-family:\'DM Sans\',sans-serif;'
-                        f'font-size:0.83rem;font-weight:500;white-space:nowrap;">{val}</td>'
-                    )
-                elif col == "Seed":
-                    cells += (
-                        f'<td style="padding:7px 14px;text-align:center;font-family:\'DM Sans\',sans-serif;'
-                        f'font-size:0.83rem;color:#c97b00;font-weight:700;">{int(val)}</td>'
-                    )
-                else:
-                    cs = pct_to_style(val)
-                    cells += (
-                        f'<td style="padding:7px 14px;text-align:center;font-family:\'DM Sans\',sans-serif;'
-                        f'font-size:0.83rem;{cs}">{fmt_pct(val)}</td>'
-                    )
-            rows_html += f'<tr style="background:{row_bg};">{cells}</tr>'
-
-        table_html = f"""
+        table_component = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
 <style>
-#adv-wrap {{ overflow-x:auto; border-radius:8px; border:1px solid #ddd9d2;
-             box-shadow:0 2px 10px rgba(0,0,0,0.07); margin-top:8px; }}
-#adv-tbl  {{ border-collapse:collapse; width:100%; background:#fff; }}
-#adv-tbl thead {{ background:#faf8f4; }}
-#adv-tbl tbody tr:hover {{ filter:brightness(0.96); }}
-</style>
-<div id="adv-wrap">
-  <table id="adv-tbl">
-    <thead><tr>{header_cells}</tr></thead>
-    <tbody>{rows_html}</tbody>
-  </table>
-</div>"""
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: transparent; font-family: 'DM Sans', sans-serif; padding: 8px 0; }}
 
-        st.markdown(table_html, unsafe_allow_html=True)
+  #outer {{ display: flex; justify-content: center; }}
+  #wrap  {{ border-radius: 8px; border: 1px solid #ddd9d2;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            overflow: hidden; display: inline-block; max-width: 100%; }}
+
+  table  {{ border-collapse: collapse; background: #fff; }}
+  thead  {{ background: #faf8f4; }}
+  th     {{ padding: 9px 16px; font-size: 0.68rem; font-weight: 800;
+            letter-spacing: 0.07em; text-transform: uppercase;
+            border-bottom: 2px solid #ddd9d2; white-space: nowrap;
+            cursor: pointer; user-select: none; color: #888;
+            transition: color 0.15s; }}
+  th:hover {{ color: #555; }}
+  th.active {{ color: #c97b00; }}
+  td {{ padding: 6px 16px; font-size: 0.82rem; white-space: nowrap; }}
+  tbody tr:nth-child(even) {{ background: #faf8f4; }}
+  tbody tr:hover {{ filter: brightness(0.96); }}
+  .arrow {{ font-size: 0.65rem; margin-left: 3px; opacity: 0.8; }}
+</style>
+</head>
+<body>
+<div id="outer"><div id="wrap"><table id="tbl">
+  <thead id="thead"></thead>
+  <tbody id="tbody"></tbody>
+</table></div></div>
+
+<script>
+const ROWS      = {rows_json};
+const ALL_COLS  = {cols_json};
+const LABELS    = {labels_json};
+const TEXT_COLS = new Set(["Team", "Seed"]);
+
+let sortCol = "Final Four";
+let sortAsc = false;
+
+function pctStyle(v) {{
+  if (v === null || v === undefined || isNaN(v)) return "";
+  const r = Math.round(255 - (255-201)*v);
+  const g = Math.round(253 - (253-123)*v);
+  const b = Math.round(245 - (245-0)*v);
+  const text = v > 0.5 ? "#fff" : "#333";
+  return `background:rgb(${{r}},${{g}},${{b}});color:${{text}};text-align:center;`;
+}}
+
+function fmtPct(v) {{
+  if (v === null || v === undefined || isNaN(+v)) return "—";
+  return (v * 100).toFixed(1) + "%";
+}}
+
+function render() {{
+  // Header
+  const thead = document.getElementById("thead");
+  thead.innerHTML = "";
+  const tr = document.createElement("tr");
+  ALL_COLS.forEach(col => {{
+    const th = document.createElement("th");
+    const isActive = col === sortCol;
+    const align = TEXT_COLS.has(col) ? "left" : "center";
+    th.style.textAlign = align;
+    if (isActive) th.classList.add("active");
+    const arrow = isActive ? `<span class="arrow">${{sortAsc ? "↑" : "↓"}}</span>` : "";
+    th.innerHTML = LABELS[col] + arrow;
+    th.addEventListener("click", () => {{
+      if (col === sortCol) {{
+        sortAsc = !sortAsc;
+      }} else {{
+        sortCol = col;
+        sortAsc = TEXT_COLS.has(col);  // asc default for Team/Seed, desc for rounds
+      }}
+      render();
+    }});
+    tr.appendChild(th);
+  }});
+  thead.appendChild(tr);
+
+  // Sort
+  const sorted = [...ROWS].sort((a, b) => {{
+    const va = a[sortCol], vb = b[sortCol];
+    if (va === null || va === undefined) return 1;
+    if (vb === null || vb === undefined) return -1;
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return sortAsc ? cmp : -cmp;
+  }});
+
+  // Body
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  sorted.forEach(row => {{
+    const tr = document.createElement("tr");
+    ALL_COLS.forEach(col => {{
+      const td = document.createElement("td");
+      const val = row[col];
+      if (col === "Team") {{
+        td.style.fontWeight = "500";
+        td.textContent = val;
+      }} else if (col === "Seed") {{
+        td.style.cssText = "text-align:center;color:#c97b00;font-weight:700;";
+        td.textContent = val;
+      }} else {{
+        td.style.cssText = pctStyle(val);
+        td.textContent = fmtPct(val);
+      }}
+      tr.appendChild(td);
+    }});
+    tbody.appendChild(tr);
+  }});
+
+  // Resize iframe
+  const h = document.getElementById("outer").scrollHeight + 20;
+  window.parent.postMessage({{type:"adv-table-height", height: h}}, "*");
+}}
+
+render();
+</script>
+</body>
+</html>"""
+
+        # Estimate height: 68 teams * ~32px row + header ~40px + padding
+        n_rows = len(adv_display)
+        est_height = n_rows * 33 + 60
+
+        components.html(table_component, height=est_height, scrolling=False)
