@@ -811,12 +811,31 @@ with tab_bracket:
 
 with tab_probs:
     import streamlit.components.v1 as components
+    import json
 
-    adv_path = "adv_2025.csv"
-    if not os.path.exists(adv_path):
-        st.error(f"Could not find {adv_path}.")
+    # Try adv_all.csv first (combined), fall back to adv_2025.csv
+    if os.path.exists("adv_all.csv"):
+        adv_all = pd.read_csv("adv_all.csv")
+        adv_all["Season"] = adv_all["Season"].astype(int)
+        available_years = sorted(adv_all["Season"].unique(), reverse=True)
+    elif os.path.exists("adv_2025.csv"):
+        adv_all = pd.read_csv("adv_2025.csv")
+        adv_all["Season"] = 2025
+        available_years = [2025]
     else:
-        adv = pd.read_csv(adv_path)
+        st.error("Could not find adv_all.csv or adv_2025.csv.")
+        adv_all = None
+        available_years = []
+
+    if adv_all is not None:
+        selected_year = st.selectbox(
+            "Season",
+            options=available_years,
+            index=0,
+            key="adv_year",
+        )
+
+        adv = adv_all[adv_all["Season"] == selected_year].copy()
 
         round_cols   = ["Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship", "Champion"]
         display_cols = ["TeamName", "SeedNum"] + round_cols
@@ -829,11 +848,9 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        # Serialize data as JSON for JS
-        import json
-        rows_data = adv_display.to_dict(orient="records")
-        rows_json = json.dumps(rows_data)
-        cols_json = json.dumps(all_cols)
+        rows_data   = adv_display.to_dict(orient="records")
+        rows_json   = json.dumps(rows_data)
+        cols_json   = json.dumps(all_cols)
         labels_json = json.dumps(col_labels)
 
         table_component = f"""
