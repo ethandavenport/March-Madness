@@ -124,15 +124,19 @@ def games_for_ordered(region, round_name, slot_pos):
         if pa <= pb:
             top_name, top_seed = row["ATeamName"], int(row["Seed_A"])
             bot_name, bot_seed = row["BTeamName"], int(row["Seed_B"])
+            top_tid  = str(row["ATeamID"])
+            bot_tid  = str(row["BTeamID"])
             sort_key = pa
         else:
             top_name, top_seed = row["BTeamName"], int(row["Seed_B"])
             bot_name, bot_seed = row["ATeamName"], int(row["Seed_A"])
+            top_tid  = str(row["BTeamID"])
+            bot_tid  = str(row["ATeamID"])
             sort_key = pb
         result.append({
             "row": row,
-            "top_name": top_name, "top_seed": top_seed,
-            "bot_name": bot_name, "bot_seed": bot_seed,
+            "top_name": top_name, "top_seed": top_seed, "top_tid": top_tid,
+            "bot_name": bot_name, "bot_seed": bot_seed, "bot_tid": bot_tid,
             "sort_key": sort_key,
         })
 
@@ -457,31 +461,26 @@ def game_card(gd, tooltip_side="right"):
     fp       = row.get("FProb", float("nan"))
     sp       = row.get("SProb", float("nan"))
     match_id = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
+    top_tid  = gd["top_tid"]
+    bot_tid  = gd["bot_tid"]
 
-    # Per-team actual results — which team actually won their source slot
     at_n = at_s = at_t = ab_n = ab_s = ab_t = None
-    top_tid = bot_tid = None
+
     if match_id and match_id in results_cache:
         rc = results_cache[match_id]
-        # Determine which results_cache entry (A or B) corresponds to top/bot
-        # top = team with lower slot position (gd["top_name"])
-        aid = str(rc.get("ATeamID", ""))
-        bid = str(rc.get("BTeamID", ""))
-        top_is_a = (str(row.get("ATeamID", "")) == aid and gd["top_name"] == row.get("ATeamName"))
 
         def _clean(v):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
 
-        if top_is_a:
-            at_n, at_s, at_t = _clean(rc.get("ActualA")), _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
-            ab_n, ab_s, ab_t = _clean(rc.get("ActualB")), _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
-            top_tid = str(row.get("ATeamID", ""))
-            bot_tid = str(row.get("BTeamID", ""))
+        # ActualA/B align to ATeamID/BTeamID in the bracket row.
+        # Map to top/bot using TeamID.
+        a_tid = str(row.get("ATeamID", ""))
+        if top_tid == a_tid:
+            at_n, at_s, at_t = _clean(rc.get("ActualA")),     _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
+            ab_n, ab_s, ab_t = _clean(rc.get("ActualB")),     _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
         else:
-            at_n, at_s, at_t = _clean(rc.get("ActualB")), _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
-            ab_n, ab_s, ab_t = _clean(rc.get("ActualA")), _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
-            top_tid = str(row.get("BTeamID", ""))
-            bot_tid = str(row.get("ATeamID", ""))
+            at_n, at_s, at_t = _clean(rc.get("ActualB")),     _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid"))
+            ab_n, ab_s, ab_t = _clean(rc.get("ActualA")),     _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid"))
 
     return game_card_parts(
         gd["top_name"], gd["top_seed"], gd["bot_name"], gd["bot_seed"],
