@@ -81,6 +81,80 @@ UPSET_ROUNDS = set(ROUND_LABELS[:4])
 
 EPSILON = 1.0
 
+# ---------------------------------------------------------------------------
+# Slot ID helpers
+# ---------------------------------------------------------------------------
+# SlotID encodes bracket position using region + the minimum possible seeds
+# from each half of the pod if all favorites won.
+#
+# R1:  exact pair,    e.g. W_R1_1v16, W_R1_8v9
+# R2:  pod minimums,  e.g. W_R2_1v8,  W_R2_4v5,  W_R2_3v6,  W_R2_2v7
+# S16: half minimums, e.g. W_S16_1v4, W_S16_2v3
+# E8:  always         W_E8_1v2
+# FF:  WX_FF
+# NCG: WXYZ_NCG
+#
+# Assignment rule: given Seed_A and Seed_B (and Region), determine which
+# slot they fall into by checking which seed-set contains both seeds.
+
+# R2 pods: each is a frozenset of the 4 seeds that could appear, label = (min1, min2)
+_R2_PODS = [
+    (frozenset({1, 16, 8, 9}),   (1, 8)),
+    (frozenset({4, 13, 5, 12}),  (4, 5)),
+    (frozenset({3, 14, 6, 11}),  (3, 6)),
+    (frozenset({2, 15, 7, 10}),  (2, 7)),
+]
+
+# S16 halves: each is a frozenset of the 8 seeds in that half
+_S16_HALVES = [
+    (frozenset({1, 16, 8, 9, 4, 13, 5, 12}),  (1, 4)),
+    (frozenset({3, 14, 6, 11, 2, 15, 7, 10}), (2, 3)),
+]
+
+
+def _slot_id(region: str, round_label: str, seed_a: int, seed_b: int) -> str:
+    """Compute a SlotID for any game given region, round, and the two seeds."""
+    s1, s2 = min(seed_a, seed_b), max(seed_a, seed_b)
+
+    if round_label == "Round 1":
+        return f"{region}_R1_{s1}v{s2}"
+
+    if round_label == "Round 2":
+        for pod_seeds, (l1, l2) in _R2_PODS:
+            if s1 in pod_seeds and s2 in pod_seeds:
+                return f"{region}_R2_{l1}v{l2}"
+
+    if round_label == "Round 3 (Sweet Sixteen)":
+        for half_seeds, (l1, l2) in _S16_HALVES:
+            if s1 in half_seeds and s2 in half_seeds:
+                return f"{region}_S16_{l1}v{l2}"
+
+    if round_label == "Round 4 (Elite Eight)":
+        return f"{region}_E8_1v2"
+
+    return None   # FF / NCG handled separately
+
+
+def _r1_slot_ids(region: str) -> list:
+    return [_slot_id(region, "Round 1", s1, s2) for s1, s2 in _R1_SEED_PAIRS]
+
+def _r2_slot_ids(region: str) -> list:
+    r1_favs = [s1 for s1, s2 in _R1_SEED_PAIRS]
+    return [_slot_id(region, "Round 2", r1_favs[a], r1_favs[b]) for a, b in _R2_FOLD]
+
+def _r3_slot_ids(region: str) -> list:
+    r1_favs = [s1 for s1, s2 in _R1_SEED_PAIRS]
+    r2_favs = [r1_favs[a] for a, b in _R2_FOLD]
+    return [_slot_id(region, "Round 3 (Sweet Sixteen)", r2_favs[a], r2_favs[b]) for a, b in _R3_FOLD]
+
+def _r4_slot_ids(region: str) -> list:
+    return [f"{region}_E8_1v2"]
+
+def _ff_slot_id(ra: str, rb: str) -> str:
+    return f"{ra}{rb}_FF"
+
+NCG_SLOT_ID = "WXYZ_NCG"
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -184,30 +258,26 @@ def _alphabetical_pair(tid1, tid2, seed_lookup):
 def _shap_plot_b64(
     X_scaled_row: pd.DataFrame,
     explainer,
-    team_top: str,   # team from the "top" bracket slot — shown as Team A
-    team_bot: str,   # team from the "bottom" bracket slot — shown as Team B
-    pred_prob: float,              # P(team_top wins)
+    team_a: str,
+    team_b: str,
+    pred_prob: float,   # P(team_a wins)
 ) -> str:
     """
     Generate a SHAP waterfall plot for one game row.
     Returns a base64-encoded PNG string.
-    team_top/team_bot follow bracket slot order, not alphabetical A/B order.
     """
-    favorite = team_top if pred_prob >= 0.5 else team_bot
+    favorite = team_a if pred_prob >= 0.5 else team_b
     fav_prob = max(pred_prob, 1.0 - pred_prob)
 
     shap_vals = explainer.shap_values(X_scaled_row, silent=True)
 
-    # Rename features: _A → _{team_top}, _B → _{team_bot}
-    # X_scaled_row columns use A/B based on alphabetical order in the data,
-    # so we need to map those to whichever team is actually A in this row.
-    # The caller passes X_scaled_row with original A/B columns, plus the
-    # team names in slot order; we rename accordingly.
+    # Rename features: _A → _{team_a}, _B → _{team_b}
     renamed_features = [
-        col.replace("_A", f"_{team_top}").replace("_B", f"_{team_bot}")
+        col.replace("_A", f"_{team_a}").replace("_B", f"_{team_b}")
         for col in X_scaled_row.columns
     ]
 
+    # Pass data=None to suppress the "= {value}" suffix on y-axis labels
     explanation = shap.Explanation(
         values        = shap_vals[0],
         base_values   = explainer.expected_value,
@@ -217,16 +287,16 @@ def _shap_plot_b64(
 
     shap.plots.waterfall(explanation, max_display=10, show=False)
 
-    # Strip any trailing " = " that SHAP appends to y-axis labels
+    # Some SHAP versions still append " = " even with data=None — strip it
     ax = plt.gca()
     for label in ax.get_yticklabels():
         txt = label.get_text()
         if " = " in txt:
             label.set_text(txt[:txt.rfind(" = ")])
-    ax.figure.canvas.draw()   # force label re-render before saving
+    ax.figure.canvas.draw()
 
-    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_top}")
-    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_bot}")
+    red_patch  = mpatches.Patch(color="#FF0051", label=f"Team A: {team_a}")
+    blue_patch = mpatches.Patch(color="#008BFB", label=f"Team B: {team_b}")
     plt.legend(handles=[red_patch, blue_patch], loc="lower right", fontsize=10)
     plt.title(f"Favorite: {favorite} ({fav_prob*100:.1f}%)", fontsize=14)
     plt.tight_layout()
@@ -248,7 +318,6 @@ def _predict_and_annotate(
     round_label: str,
     seed_lookup: pd.DataFrame,
     explainer=None,
-    top_tids: list = None,   # ordered list of "top-slot" TeamIDs, one per game row
 ) -> tuple[pd.DataFrame, list]:
     """
     Scale, predict, compute FProb/SProb/Lift, pick winners.
@@ -285,34 +354,12 @@ def _predict_and_annotate(
     if explainer is not None:
         shap_plots = []
         for i, (_, row) in enumerate(matchup_df.iterrows()):
-            # Determine which team is "top" (came from earlier bracket slot)
-            if top_tids is not None and i < len(top_tids):
-                top_tid = str(top_tids[i])
-            else:
-                # Fallback: lower seed is top
-                top_tid = str(row["ATeamID"]) if row["Seed_A"] <= row["Seed_B"] else str(row["BTeamID"])
-
-            if str(row["ATeamID"]) == top_tid:
-                team_top, team_bot = row["ATeamName"], row["BTeamName"]
-                pred_prob_top = float(row["AProb"])
-                # X_scaled_row already has _A = top, _B = bot
-                x_row = X_scaled.iloc[[i]]
-            else:
-                team_top, team_bot = row["BTeamName"], row["ATeamName"]
-                pred_prob_top = 1.0 - float(row["AProb"])
-                # Swap _A/_B columns so _A always corresponds to team_top
-                swapped_cols = {
-                    c: c[:-2] + "_A" if c.endswith("_B") else c[:-2] + "_B" if c.endswith("_A") else c
-                    for c in X_scaled.columns
-                }
-                x_row = X_scaled.iloc[[i]].rename(columns=swapped_cols)
-
             b64 = _shap_plot_b64(
-                X_scaled_row = x_row,
+                X_scaled_row = X_scaled.iloc[[i]],
                 explainer    = explainer,
-                team_top     = team_top,
-                team_bot     = team_bot,
-                pred_prob    = pred_prob_top,
+                team_a       = row["ATeamName"],
+                team_b       = row["BTeamName"],
+                pred_prob    = float(row["AProb"]),
             )
             shap_plots.append(b64)
         matchup_df["SHAPPlot"] = shap_plots
@@ -378,98 +425,88 @@ def _run_bracket(
             _alphabetical_pair(team_map[(region, s1)], team_map[(region, s2)], seed_lookup)
             for s1, s2 in _R1_SEED_PAIRS
         ]
-        r1_top_tids = [team_map[(region, s1)] for s1, s2 in _R1_SEED_PAIRS]
 
         matchup_df = _build_matchup_rows(r1_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 1")
+        matchup_df["SlotID"] = _r1_slot_ids(region)
         matchup_df, r1_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 1", seed_lookup, explainer,
-            top_tids=r1_top_tids
+            lift_thresholds, "Round 1", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
-        # R2: top = winner from the 'a' (first) slot of each fold pair
+        # R2
         r2_pairs = [_alphabetical_pair(r1_winners[a], r1_winners[b], seed_lookup)
                     for a, b in _R2_FOLD]
-        r2_top_tids = [r1_winners[a] for a, b in _R2_FOLD]
         matchup_df = _build_matchup_rows(r2_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 2")
+        matchup_df["SlotID"] = _r2_slot_ids(region)
         matchup_df, r2_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 2", seed_lookup, explainer,
-            top_tids=r2_top_tids
+            lift_thresholds, "Round 2", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
         # Sweet 16
         r3_pairs = [_alphabetical_pair(r2_winners[a], r2_winners[b], seed_lookup)
                     for a, b in _R3_FOLD]
-        r3_top_tids = [r2_winners[a] for a, b in _R3_FOLD]
         matchup_df = _build_matchup_rows(r3_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 3 (Sweet Sixteen)")
+        matchup_df["SlotID"] = _r3_slot_ids(region)
         matchup_df, r3_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup, explainer,
-            top_tids=r3_top_tids
+            lift_thresholds, "Round 3 (Sweet Sixteen)", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
         # Elite 8
         r4_pairs = [_alphabetical_pair(r3_winners[a], r3_winners[b], seed_lookup)
                     for a, b in _R4_FOLD]
-        r4_top_tids = [r3_winners[a] for a, b in _R4_FOLD]
         matchup_df = _build_matchup_rows(r4_pairs, seed_lookup, stats_lookup,
                                          stat_cols, season, "Round 4 (Elite Eight)")
+        matchup_df["SlotID"] = _r4_slot_ids(region)
         matchup_df, r4_winners = _predict_and_annotate(
             matchup_df, feat_cols, scaler, model, seed_probs,
-            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup, explainer,
-            top_tids=r4_top_tids
+            lift_thresholds, "Round 4 (Elite Eight)", seed_lookup, explainer
         )
         all_dfs.append(matchup_df)
 
         region_champs[region] = r4_winners[0]
 
     # ------------------------------------------------------------------
-    # Final Four: top = first region champ in each FF pair
+    # Final Four
     # ------------------------------------------------------------------
     ff_pairs = [
         _alphabetical_pair(region_champs[ra], region_champs[rb], seed_lookup)
         for ra, rb in _FF_PAIRS
         if ra in region_champs and rb in region_champs
     ]
-    ff_top_tids = [region_champs[ra] for ra, rb in _FF_PAIRS
-                   if ra in region_champs and rb in region_champs]
     matchup_df = _build_matchup_rows(ff_pairs, seed_lookup, stats_lookup,
                                      stat_cols, season, "Final Four")
+    matchup_df["SlotID"] = [_ff_slot_id(ra, rb) for ra, rb in _FF_PAIRS
+                            if ra in region_champs and rb in region_champs]
     matchup_df, ff_winners = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Final Four", seed_lookup, explainer,
-        top_tids=ff_top_tids
+        lift_thresholds, "Final Four", seed_lookup, explainer
     )
     all_dfs.append(matchup_df)
 
     # ------------------------------------------------------------------
-    # Championship: top = first FF winner
+    # Championship
     # ------------------------------------------------------------------
     champ_pair = [_alphabetical_pair(ff_winners[0], ff_winners[1], seed_lookup)]
     matchup_df = _build_matchup_rows(champ_pair, seed_lookup, stats_lookup,
                                      stat_cols, season, "Championship")
+    matchup_df["SlotID"] = [NCG_SLOT_ID]
     matchup_df, _ = _predict_and_annotate(
         matchup_df, feat_cols, scaler, model, seed_probs,
-        lift_thresholds, "Championship", seed_lookup, explainer,
-        top_tids=[ff_winners[0]]
+        lift_thresholds, "Championship", seed_lookup, explainer
     )
     all_dfs.append(matchup_df)
 
     result = pd.concat(all_dfs, ignore_index=True)
     result["Round"] = pd.Categorical(result["Round"], categories=ROUND_LABELS, ordered=True)
     result = result.sort_values(["Round", "ATeamName"]).reset_index(drop=True)
-
-    # Add MatchID column at beginning
-    low_ids = result[["ATeamID", "BTeamID"]].astype(int).min(axis=1).astype(str)
-    high_ids = result[["ATeamID", "BTeamID"]].astype(int).max(axis=1).astype(str)
-    result.insert(0, "MatchID", season + "_" + low_ids + "_" + high_ids)
 
     return result
 
@@ -478,12 +515,83 @@ def _run_bracket(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _build_actual_results(
+    season: str,
+    bracket: pd.DataFrame,
+    mm_results: pd.DataFrame,
+) -> dict:
+    """
+    Match actual tournament results to bracket slots using SlotID.
+
+    For every row in bracket_df, compute its SlotID from Region + Round + seeds.
+    For every row in mm_results, compute the same SlotID from Region + Round + seeds.
+    Join on SlotID to find the actual winner of each predicted game.
+
+    Returns dict: SlotID -> {"winner_name": str, "winner_seed": int}
+
+    mm_results columns: Season, Round, ATeamName, BTeamName,
+                        ATeamID, BTeamID, Seed_A, Seed_B, AWon,
+                        Region_A (or derivable from Seed_A prefix)
+    """
+    res = mm_results[mm_results["Season"].astype(str) == season].copy()
+
+    # Derive region columns if not present
+    if "Region_A" not in res.columns:
+        res["Region_A"] = res["Seed_A"].astype(str).str[0]
+    if "Region_B" not in res.columns:
+        res["Region_B"] = res["Seed_B"].astype(str).str[0]
+
+    # Compute SlotID for every actual result row
+    # For FF/NCG we use the special IDs
+    round_to_tag = {
+        "Round 1":                  "Round 1",
+        "Round 2":                  "Round 2",
+        "Round 3 (Sweet Sixteen)":  "Round 3 (Sweet Sixteen)",
+        "Round 4 (Elite Eight)":    "Round 4 (Elite Eight)",
+        "Final Four":               "Final Four",
+        "Championship":             "Championship",
+    }
+
+    slot_results = {}
+
+    for _, row in res.iterrows():
+        round_label = str(row["Round"])
+        region      = str(row["Region_A"])
+
+        if round_label == "Final Four":
+            # Determine which FF pair this is
+            # Region_B gives the other region
+            rb = str(row.get("Region_B", ""))
+            pair = tuple(sorted([region, rb]))
+            slot_id = f"{pair[0]}{pair[1]}_FF"
+        elif round_label == "Championship":
+            slot_id = NCG_SLOT_ID
+        else:
+            sa = int(float(row["Seed_A"]))
+            sb = int(float(row["Seed_B"]))
+            slot_id = _slot_id(region, round_label, sa, sb)
+
+        if slot_id is None:
+            continue
+
+        # Determine winner name and seed
+        a_won = bool(row["AWon"])
+        winner_name = str(row["ATeamName"]) if a_won else str(row["BTeamName"])
+        winner_seed = int(float(row["Seed_A"])) if a_won else int(float(row["Seed_B"]))
+
+        slot_results[slot_id] = {
+            "winner_name": winner_name,
+            "winner_seed": winner_seed,
+        }
+
+    return slot_results
+
 def fill_bracket(
     year,
     df: pd.DataFrame,
     team_data: pd.DataFrame,
     mm_seeds_full: pd.DataFrame,
-    logit,              # kept for API compatibility but seed_probs is used instead
+    logit,
     seed_probs: pd.DataFrame,
     lift_thresholds: dict,
     model_kwargs: Optional[dict] = None,
@@ -689,6 +797,190 @@ def fill_bracket(
             key = tuple(key_tids)
         else:
             key = ()
+
+        # Add MatchID
+        low_ids  = bracket[["ATeamID", "BTeamID"]].astype(int).min(axis=1).astype(str)
+        high_ids = bracket[["ATeamID", "BTeamID"]].astype(int).max(axis=1).astype(str)
+        bracket.insert(0, "MatchID", season + "_" + low_ids + "_" + high_ids)
+
+        # --- Annotate with actual results from df ---
+        # For each team appearing in a bracket game, check whether that team
+        # actually won the game that got them here (their "source slot").
+        # R1: teams are seeded in — no source slot, always correct.
+        # R2+: source slot is the prior-round game in the same pod.
+        #
+        # We store ActualA / ActualB = actual winner of each team's source slot.
+        # If ActualA != ATeamName (by TeamID), the A team shouldn't be here.
+        df_season = df[df["Season"].astype(str) == season].copy()
+
+        if not df_season.empty and "AWon" in df_season.columns:
+            if "Region_A" in df_season.columns:
+                df_season["_region"] = df_season["Region_A"].astype(str)
+            else:
+                df_season["_region"] = df_season["Seed_A"].astype(str).str[0]
+
+            def _df_slot_id(row):
+                region = row["_region"]
+                round_label = str(row["Round"]) if "Round" in row.index else None
+                if round_label is None:
+                    return None
+                sa = int(float(row["Seed_A"]))
+                sb = int(float(row["Seed_B"]))
+                if round_label == "Final Four":
+                    rb = str(row["Region_B"]) if "Region_B" in row.index else str(row["Seed_B"])[0]
+                    pair = tuple(sorted([region, rb]))
+                    return f"{pair[0]}{pair[1]}_FF"
+                if round_label == "Championship":
+                    return NCG_SLOT_ID
+                return _slot_id(region, round_label, sa, sb)
+
+            df_season["SlotID"] = df_season.apply(_df_slot_id, axis=1)
+
+            # slot_lookup: SlotID -> {winner_name, winner_seed, winner_tid}
+            slot_lookup = {}
+            for _, row in df_season.iterrows():
+                sid = row["SlotID"]
+                if sid is None:
+                    continue
+                a_won = bool(row["AWon"])
+                slot_lookup[sid] = {
+                    "winner_name": str(row["ATeamName"]) if a_won else str(row["BTeamName"]),
+                    "winner_seed": int(float(row["Seed_A"])) if a_won else int(float(row["Seed_B"])),
+                    "winner_tid":  str(row["ATeamID"])  if a_won else str(row["BTeamID"]),
+                }
+
+            # Source slot map: given a game's SlotID, what are the two source SlotIDs
+            # (one per team) from the previous round?
+            # R1 → no source (None, None)
+            # R2 → two R1 slots
+            # S16 → two R2 slots
+            # E8 → two S16 slots
+            # FF → two E8 slots
+            # NCG → two FF slots
+            def _source_slots(slot_id: str):
+                """Return (source_slot_for_team_a_side, source_slot_for_team_b_side)."""
+                if slot_id is None:
+                    return None, None
+                if slot_id == NCG_SLOT_ID:
+                    # Two FF games feed into NCG
+                    ff_ids = [_ff_slot_id(ra, rb) for ra, rb in _FF_PAIRS]
+                    return (ff_ids[0], ff_ids[1]) if len(ff_ids) >= 2 else (None, None)
+                if slot_id.endswith("_FF"):
+                    # Two E8 games feed into FF
+                    regions = slot_id.replace("_FF", "")   # e.g. "WX"
+                    if len(regions) == 2:
+                        ra, rb = regions[0], regions[1]
+                        return f"{ra}_E8_1v2", f"{rb}_E8_1v2"
+                    return None, None
+                # Parse region and round from slot_id like "W_R2_1v8"
+                parts = slot_id.split("_", 2)   # ["W", "R2", "1v8"]
+                if len(parts) != 3:
+                    return None, None
+                region, rnd_tag, _ = parts
+                if rnd_tag == "R1":
+                    return None, None   # seeded in, no source
+                if rnd_tag == "R2":
+                    # Source = the two R1 games in this pod
+                    seeds_str = parts[2]   # e.g. "1v8"
+                    s1, s2 = [int(x) for x in seeds_str.split("v")]
+                    # Find which R1 pairs belong to this pod
+                    for pod_seeds, (l1, l2) in _R2_PODS:
+                        if s1 == l1 and s2 == l2:
+                            # R1 pairs in this pod
+                            r1_pairs_in_pod = [(a, b) for a, b in _R1_SEED_PAIRS if a in pod_seeds]
+                            if len(r1_pairs_in_pod) >= 2:
+                                sa1, sb1 = r1_pairs_in_pod[0]
+                                sa2, sb2 = r1_pairs_in_pod[1]
+                                return f"{region}_R1_{sa1}v{sb1}", f"{region}_R1_{sa2}v{sb2}"
+                    return None, None
+                if rnd_tag == "S16":
+                    seeds_str = parts[2]
+                    s1, s2 = [int(x) for x in seeds_str.split("v")]
+                    # Find which R2 slots belong to this S16 half
+                    for half_seeds, (l1, l2) in _S16_HALVES:
+                        if s1 == l1 and s2 == l2:
+                            r2_slots = [f"{region}_R2_{la}v{lb}"
+                                        for pod_seeds, (la, lb) in _R2_PODS
+                                        if pod_seeds.issubset(half_seeds)]
+                            if len(r2_slots) >= 2:
+                                return r2_slots[0], r2_slots[1]
+                    return None, None
+                if rnd_tag == "E8":
+                    return f"{region}_S16_1v4", f"{region}_S16_2v3"
+                return None, None
+
+            # Build per-team annotations
+            actual_a_names, actual_a_seeds, actual_a_tids = [], [], []
+            actual_b_names, actual_b_seeds, actual_b_tids = [], [], []
+
+            for _, row in bracket.iterrows():
+                sid = row.get("SlotID")
+                src_a, src_b = _source_slots(sid)
+
+                def _get_actual(src):
+                    if src is None:
+                        return None, None, None
+                    info = slot_lookup.get(src)
+                    if info is None:
+                        return None, None, None
+                    return info["winner_name"], info["winner_seed"], info["winner_tid"]
+
+                # Determine which source slot belongs to which team (A or B)
+                # by checking which team's seed falls in which source slot's seed-set
+                sa = int(float(row["Seed_A"]))
+                sb = int(float(row["Seed_B"]))
+
+                def _seed_in_slot(seed, slot_id):
+                    if slot_id is None:
+                        return False
+                    parts = slot_id.split("_", 2)
+                    if len(parts) < 3:
+                        return False
+                    rnd_tag = parts[1]
+                    if rnd_tag == "R1":
+                        sv = [int(x) for x in parts[2].split("v")]
+                        return seed in sv
+                    if rnd_tag == "R2":
+                        sv = [int(x) for x in parts[2].split("v")]
+                        l1, l2 = sv[0], sv[1]
+                        for pod_seeds, (pl1, pl2) in _R2_PODS:
+                            if pl1 == l1 and pl2 == l2:
+                                return seed in pod_seeds
+                    if rnd_tag == "S16":
+                        sv = [int(x) for x in parts[2].split("v")]
+                        l1, l2 = sv[0], sv[1]
+                        for half_seeds, (hl1, hl2) in _S16_HALVES:
+                            if hl1 == l1 and hl2 == l2:
+                                return seed in half_seeds
+                    if rnd_tag == "E8":
+                        return True   # all seeds possible
+                    return False
+
+                # Assign source slots to A and B teams by seed membership
+                if _seed_in_slot(sa, src_a):
+                    src_for_a, src_for_b = src_a, src_b
+                else:
+                    src_for_a, src_for_b = src_b, src_a
+
+                an, as_, at = _get_actual(src_for_a)
+                bn, bs_, bt = _get_actual(src_for_b)
+
+                actual_a_names.append(an)
+                actual_a_seeds.append(as_)
+                actual_a_tids.append(at)
+                actual_b_names.append(bn)
+                actual_b_seeds.append(bs_)
+                actual_b_tids.append(bt)
+
+            bracket["ActualA"]      = actual_a_names
+            bracket["ActualASeed"]  = actual_a_seeds
+            bracket["ActualATid"]   = actual_a_tids
+            bracket["ActualB"]      = actual_b_names
+            bracket["ActualBSeed"]  = actual_b_seeds
+            bracket["ActualBTid"]   = actual_b_tids
+        else:
+            for col in ["ActualA","ActualASeed","ActualATid","ActualB","ActualBSeed","ActualBTid"]:
+                bracket[col] = None
 
         results[key] = bracket
 
