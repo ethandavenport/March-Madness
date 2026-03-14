@@ -855,13 +855,13 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        rows_json        = json.dumps(adv_display.to_dict(orient="records"))
+        rows_json        = json.dumps(adv_display.astype(object).where(adv_display.notna(), None).to_dict(orient="records"))
         cols_json        = json.dumps(all_cols)
         labels_json      = json.dumps(col_labels)
-        years_json       = json.dumps(available_years)
+        years_json       = json.dumps([int(y) for y in available_years])
         init_col_json    = json.dumps(init_sort_col)
         init_asc_json    = json.dumps(init_sort_asc)
-        sel_year_json    = json.dumps(selected_year)
+        sel_year_json    = json.dumps(int(selected_year))
 
         n_rows     = len(adv_display)
         est_height = n_rows * 33 + 120   # extra for header row above table
