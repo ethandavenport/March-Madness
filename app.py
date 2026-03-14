@@ -828,11 +828,54 @@ with tab_probs:
         available_years = []
 
     if adv_all is not None:
-        selected_year = st.selectbox(
-            "Season",
-            options=available_years,
-            index=0,
-            key="adv_year",
+
+        # Initialize sort state once
+        if "adv_sort_col" not in st.session_state:
+            st.session_state["adv_sort_col"] = "Final Four"
+            st.session_state["adv_sort_asc"] = False
+
+        # Compact styled year selector
+        st.markdown("""
+<style>
+div[data-testid="stSelectbox"][aria-label="Season"] > div:first-child {
+    max-width: 110px;
+}
+div[data-testid="stSelectbox"][aria-label="Season"] label {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #888;
+}
+div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
+    border: 1px solid #ddd9d2;
+    border-radius: 6px;
+    background: #faf8f4;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #333;
+    min-height: 36px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+        col_year, _ = st.columns([1, 8])
+        with col_year:
+            selected_year = st.selectbox(
+                "Season",
+                options=available_years,
+                index=0,
+                key="adv_year",
+                label_visibility="collapsed",
+            )
+
+        # Styled year badge above table
+        st.markdown(
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.1rem;'
+            f'font-weight:700;color:#c97b00;margin:4px 0 10px 0;">{selected_year} Tournament</div>',
+            unsafe_allow_html=True,
         )
 
         adv = adv_all[adv_all["Season"] == selected_year].copy()
@@ -848,10 +891,12 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        rows_data   = adv_display.to_dict(orient="records")
-        rows_json   = json.dumps(rows_data)
-        cols_json   = json.dumps(all_cols)
-        labels_json = json.dumps(col_labels)
+        rows_data    = adv_display.to_dict(orient="records")
+        rows_json    = json.dumps(rows_data)
+        cols_json    = json.dumps(all_cols)
+        labels_json  = json.dumps(col_labels)
+        init_col_json = json.dumps(st.session_state["adv_sort_col"])
+        init_asc_json = json.dumps(st.session_state["adv_sort_asc"])
 
         table_component = f"""
 <!DOCTYPE html>
@@ -900,8 +945,8 @@ const ALL_COLS  = {cols_json};
 const LABELS    = {labels_json};
 const TEXT_COLS = new Set(["Team", "Seed"]);
 
-let sortCol = "Final Four";
-let sortAsc = false;
+let sortCol = {init_col_json};
+let sortAsc = {init_asc_json};
 
 function pctStyle(v) {{
   if (v === null || v === undefined || isNaN(v)) return "";
@@ -917,8 +962,17 @@ function fmtPct(v) {{
   return (v * 100).toFixed(1) + "%";
 }}
 
+function postSort() {{
+  // Notify Streamlit of current sort state via postMessage
+  window.parent.postMessage({{
+    type: "adv-sort-update",
+    sortCol: sortCol,
+    sortAsc: sortAsc,
+  }}, "*");
+}}
+
 function render() {{
-  // Colgroup — equal width for all round columns
+  // Colgroup
   const colgroup = document.getElementById("colgroup");
   colgroup.innerHTML = "";
   ALL_COLS.forEach(col => {{
@@ -936,8 +990,7 @@ function render() {{
   ALL_COLS.forEach(col => {{
     const th = document.createElement("th");
     const isActive = col === sortCol;
-    const align = TEXT_COLS.has(col) ? "left" : "center";
-    th.style.textAlign = align;
+    th.style.textAlign = TEXT_COLS.has(col) ? "left" : "center";
     if (isActive) th.classList.add("active");
     const arrow = isActive ? `<span class="arrow">${{sortAsc ? "↑" : "↓"}}</span>` : "";
     th.innerHTML = LABELS[col] + arrow;
@@ -946,15 +999,16 @@ function render() {{
         sortAsc = !sortAsc;
       }} else {{
         sortCol = col;
-        sortAsc = TEXT_COLS.has(col);  // asc default for Team/Seed, desc for rounds
+        sortAsc = TEXT_COLS.has(col);
       }}
+      postSort();
       render();
     }});
     tr.appendChild(th);
   }});
   thead.appendChild(tr);
 
-  // Sort
+  // Sort rows
   const sorted = [...ROWS].sort((a, b) => {{
     const va = a[sortCol], vb = b[sortCol];
     if (va === null || va === undefined) return 1;
@@ -985,10 +1039,6 @@ function render() {{
     }});
     tbody.appendChild(tr);
   }});
-
-  // Resize iframe
-  const h = document.getElementById("outer").scrollHeight + 20;
-  window.parent.postMessage({{type:"adv-table-height", height: h}}, "*");
 }}
 
 render();
@@ -996,8 +1046,28 @@ render();
 </body>
 </html>"""
 
-        # Estimate height: 68 teams * ~32px row + header ~40px + padding
-        n_rows = len(adv_display)
-        est_height = n_rows * 33 + 60
+        # Read sort updates from query params (written by the listener below)
+        qp = st.query_params
+        if "adv_sc" in qp:
+            st.session_state["adv_sort_col"] = qp["adv_sc"]
+        if "adv_sa" in qp:
+            st.session_state["adv_sort_asc"] = (qp["adv_sa"] == "1")
 
+        n_rows     = len(adv_display)
+        est_height = n_rows * 33 + 60
         components.html(table_component, height=est_height, scrolling=False)
+
+        # Tiny hidden listener: catches sort postMessages from the table iframe
+        # and writes them to the URL so Streamlit picks them up on next rerun
+        components.html("""
+<script>
+window.addEventListener("message", function(e) {
+  if (e.data && e.data.type === "adv-sort-update") {
+    const url = new URL(window.parent.location.href);
+    url.searchParams.set("adv_sc", e.data.sortCol);
+    url.searchParams.set("adv_sa", e.data.sortAsc ? "1" : "0");
+    window.parent.history.replaceState({}, "", url.toString());
+  }
+});
+</script>
+""", height=0)
