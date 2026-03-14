@@ -915,7 +915,7 @@ with tab_probs:
 <div id="top-bar">
   <div id="top-bar-inner">
     <div style="width:80px;"></div>
-    <div id="title">{selected_year} Tournament</div>
+    <div id="title">{available_years[0]} Tournament</div>
     <select id="year-select"></select>
   </div>
 </div>
