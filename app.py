@@ -828,55 +828,19 @@ with tab_probs:
         available_years = []
 
     if adv_all is not None:
+        qp = st.query_params
 
-        # Initialize sort state once
-        if "adv_sort_col" not in st.session_state:
-            st.session_state["adv_sort_col"] = "Final Four"
-            st.session_state["adv_sort_asc"] = False
+        # Read state from URL — year, sort col, sort direction
+        default_year = available_years[0]
+        try:
+            selected_year = int(qp.get("adv_year", default_year))
+            if selected_year not in available_years:
+                selected_year = default_year
+        except (ValueError, TypeError):
+            selected_year = default_year
 
-        # Compact styled year selector
-        st.markdown("""
-<style>
-div[data-testid="stSelectbox"][aria-label="Season"] > div:first-child {
-    max-width: 110px;
-}
-div[data-testid="stSelectbox"][aria-label="Season"] label {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: #888;
-}
-div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
-    border: 1px solid #ddd9d2;
-    border-radius: 6px;
-    background: #faf8f4;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: #333;
-    min-height: 36px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-        col_year, _ = st.columns([1, 8])
-        with col_year:
-            selected_year = st.selectbox(
-                "Season",
-                options=available_years,
-                index=0,
-                key="adv_year",
-                label_visibility="collapsed",
-            )
-
-        # Styled year badge above table
-        st.markdown(
-            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.1rem;'
-            f'font-weight:700;color:#c97b00;margin:4px 0 10px 0;">{selected_year} Tournament</div>',
-            unsafe_allow_html=True,
-        )
+        init_sort_col = qp.get("adv_sc", "Final Four")
+        init_sort_asc = qp.get("adv_sa", "0") == "1"
 
         adv = adv_all[adv_all["Season"] == selected_year].copy()
 
@@ -891,12 +855,16 @@ div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        rows_data    = adv_display.to_dict(orient="records")
-        rows_json    = json.dumps(rows_data)
-        cols_json    = json.dumps(all_cols)
-        labels_json  = json.dumps(col_labels)
-        init_col_json = json.dumps(st.session_state["adv_sort_col"])
-        init_asc_json = json.dumps(st.session_state["adv_sort_asc"])
+        rows_json        = json.dumps(adv_display.to_dict(orient="records"))
+        cols_json        = json.dumps(all_cols)
+        labels_json      = json.dumps(col_labels)
+        years_json       = json.dumps(available_years)
+        init_col_json    = json.dumps(init_sort_col)
+        init_asc_json    = json.dumps(init_sort_asc)
+        sel_year_json    = json.dumps(selected_year)
+
+        n_rows     = len(adv_display)
+        est_height = n_rows * 33 + 120   # extra for header row above table
 
         table_component = f"""
 <!DOCTYPE html>
@@ -907,6 +875,41 @@ div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ background: transparent; font-family: 'DM Sans', sans-serif; padding: 8px 0; }}
 
+  /* ── Top bar: title centered, dropdown floated right of table ── */
+  #top-bar {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    margin-bottom: 10px;
+  }}
+  #title {{
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #c97b00;
+    text-align: center;
+  }}
+  #year-select {{
+    position: absolute;
+    right: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid #ddd9d2;
+    border-radius: 6px;
+    background: #faf8f4 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 8px center;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #333;
+    padding: 5px 28px 5px 10px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+  }}
+  #year-select:hover {{ border-color: #c97b00; }}
+  #year-select:focus {{ border-color: #c97b00; box-shadow: 0 0 0 2px #c97b0022; }}
+
+  /* ── Table ── */
   #outer {{ display: flex; justify-content: center; }}
   #wrap  {{ border-radius: 8px; border: 1px solid #ddd9d2;
             box-shadow: 0 2px 10px rgba(0,0,0,0.07);
@@ -919,7 +922,7 @@ div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
             border-bottom: 2px solid #ddd9d2; white-space: nowrap;
             cursor: pointer; user-select: none; color: #888;
             transition: color 0.15s; overflow: hidden; text-overflow: ellipsis; }}
-  th:hover {{ color: #555; }}
+  th:hover  {{ color: #555; }}
   th.active {{ color: #c97b00; }}
   td {{ padding: 6px 16px; font-size: 0.82rem; white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }}
@@ -933,6 +936,12 @@ div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
 </style>
 </head>
 <body>
+
+<div id="top-bar">
+  <div id="title"><span id="title-year">{selected_year}</span> Tournament</div>
+  <select id="year-select"></select>
+</div>
+
 <div id="outer"><div id="wrap"><table id="tbl">
   <colgroup id="colgroup"></colgroup>
   <thead id="thead"></thead>
@@ -943,10 +952,31 @@ div[data-testid="stSelectbox"][aria-label="Season"] > div > div {
 const ROWS      = {rows_json};
 const ALL_COLS  = {cols_json};
 const LABELS    = {labels_json};
+const YEARS     = {years_json};
 const TEXT_COLS = new Set(["Team", "Seed"]);
+const CUR_YEAR  = {sel_year_json};
 
 let sortCol = {init_col_json};
 let sortAsc = {init_asc_json};
+
+// Populate year dropdown
+const sel = document.getElementById("year-select");
+YEARS.forEach(y => {{
+  const opt = document.createElement("option");
+  opt.value = y;
+  opt.textContent = y;
+  if (y === CUR_YEAR) opt.selected = true;
+  sel.appendChild(opt);
+}});
+
+// Year change: write year + current sort to URL and reload
+sel.addEventListener("change", () => {{
+  const url = new URL(window.parent.location.href);
+  url.searchParams.set("adv_year", sel.value);
+  url.searchParams.set("adv_sc",   sortCol);
+  url.searchParams.set("adv_sa",   sortAsc ? "1" : "0");
+  window.parent.location.href = url.toString();
+}});
 
 function pctStyle(v) {{
   if (v === null || v === undefined || isNaN(v)) return "";
@@ -962,17 +992,14 @@ function fmtPct(v) {{
   return (v * 100).toFixed(1) + "%";
 }}
 
-function postSort() {{
-  // Notify Streamlit of current sort state via postMessage
-  window.parent.postMessage({{
-    type: "adv-sort-update",
-    sortCol: sortCol,
-    sortAsc: sortAsc,
-  }}, "*");
+function saveSort() {{
+  const url = new URL(window.parent.location.href);
+  url.searchParams.set("adv_sc", sortCol);
+  url.searchParams.set("adv_sa", sortAsc ? "1" : "0");
+  window.parent.history.replaceState({{}}, "", url.toString());
 }}
 
 function render() {{
-  // Colgroup
   const colgroup = document.getElementById("colgroup");
   colgroup.innerHTML = "";
   ALL_COLS.forEach(col => {{
@@ -983,7 +1010,6 @@ function render() {{
     colgroup.appendChild(c);
   }});
 
-  // Header
   const thead = document.getElementById("thead");
   thead.innerHTML = "";
   const tr = document.createElement("tr");
@@ -995,20 +1021,20 @@ function render() {{
     const arrow = isActive ? `<span class="arrow">${{sortAsc ? "↑" : "↓"}}</span>` : "";
     th.innerHTML = LABELS[col] + arrow;
     th.addEventListener("click", () => {{
-      if (col === sortCol) {{
+      const wasActive = (col === sortCol);
+      if (wasActive) {{
         sortAsc = !sortAsc;
       }} else {{
         sortCol = col;
         sortAsc = TEXT_COLS.has(col);
       }}
-      postSort();
+      saveSort();
       render();
     }});
     tr.appendChild(th);
   }});
   thead.appendChild(tr);
 
-  // Sort rows
   const sorted = [...ROWS].sort((a, b) => {{
     const va = a[sortCol], vb = b[sortCol];
     if (va === null || va === undefined) return 1;
@@ -1017,7 +1043,6 @@ function render() {{
     return sortAsc ? cmp : -cmp;
   }});
 
-  // Body
   const tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
   sorted.forEach(row => {{
@@ -1046,28 +1071,4 @@ render();
 </body>
 </html>"""
 
-        # Read sort updates from query params (written by the listener below)
-        qp = st.query_params
-        if "adv_sc" in qp:
-            st.session_state["adv_sort_col"] = qp["adv_sc"]
-        if "adv_sa" in qp:
-            st.session_state["adv_sort_asc"] = (qp["adv_sa"] == "1")
-
-        n_rows     = len(adv_display)
-        est_height = n_rows * 33 + 60
         components.html(table_component, height=est_height, scrolling=False)
-
-        # Tiny hidden listener: catches sort postMessages from the table iframe
-        # and writes them to the URL so Streamlit picks them up on next rerun
-        components.html("""
-<script>
-window.addEventListener("message", function(e) {
-  if (e.data && e.data.type === "adv-sort-update") {
-    const url = new URL(window.parent.location.href);
-    url.searchParams.set("adv_sc", e.data.sortCol);
-    url.searchParams.set("adv_sa", e.data.sortAsc ? "1" : "0");
-    window.parent.history.replaceState({}, "", url.toString());
-  }
-});
-</script>
-""", height=0)
