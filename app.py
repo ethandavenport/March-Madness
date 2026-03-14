@@ -875,36 +875,22 @@ with tab_probs:
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ background: transparent; font-family: 'DM Sans', sans-serif; padding: 8px 0; }}
 
-  /* ── Top bar: title centered, dropdown floated right of table ── */
-  #top-bar {{
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: relative;
-    margin-bottom: 10px;
+  /* ── Top bar ── */
+  #top-bar {{ display: flex; justify-content: center; margin-bottom: 8px; }}
+  #top-bar-inner {{
+    display: flex; align-items: center; justify-content: space-between;
+    width: 1060px; max-width: 100%;
   }}
   #title {{
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #c97b00;
-    text-align: center;
+    font-size: 1.05rem; font-weight: 700; color: #c97b00;
+    flex: 1; text-align: center;
   }}
   #year-select {{
-    position: absolute;
-    right: 0;
-    appearance: none;
-    -webkit-appearance: none;
-    border: 1px solid #ddd9d2;
-    border-radius: 6px;
+    appearance: none; -webkit-appearance: none;
+    border: 1px solid #ddd9d2; border-radius: 6px;
     background: #faf8f4 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right 8px center;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #333;
-    padding: 5px 28px 5px 10px;
-    cursor: pointer;
-    outline: none;
-    transition: border-color 0.15s;
+    font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 600; color: #333;
+    padding: 5px 28px 5px 10px; cursor: pointer; outline: none; transition: border-color 0.15s;
   }}
   #year-select:hover {{ border-color: #c97b00; }}
   #year-select:focus {{ border-color: #c97b00; box-shadow: 0 0 0 2px #c97b0022; }}
@@ -938,8 +924,11 @@ with tab_probs:
 <body>
 
 <div id="top-bar">
-  <div id="title"><span id="title-year">{selected_year}</span> Tournament</div>
-  <select id="year-select"></select>
+  <div id="top-bar-inner">
+    <div style="width:80px;"></div>
+    <div id="title">{selected_year} Tournament</div>
+    <select id="year-select"></select>
+  </div>
 </div>
 
 <div id="outer"><div id="wrap"><table id="tbl">
@@ -969,13 +958,14 @@ YEARS.forEach(y => {{
   sel.appendChild(opt);
 }});
 
-// Year change: write year + current sort to URL and reload
+// Year change: write params then reload parent
 sel.addEventListener("change", () => {{
   const url = new URL(window.parent.location.href);
   url.searchParams.set("adv_year", sel.value);
   url.searchParams.set("adv_sc",   sortCol);
   url.searchParams.set("adv_sa",   sortAsc ? "1" : "0");
-  window.parent.location.href = url.toString();
+  window.parent.history.replaceState({{}}, "", url.toString());
+  window.parent.location.reload();
 }});
 
 function pctStyle(v) {{
