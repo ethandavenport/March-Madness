@@ -849,73 +849,43 @@ def fill_bracket(
                     "winner_tid":  str(row["ATeamID"])  if a_won else str(row["BTeamID"]),
                 }
 
-            # Source slot map: given a game's SlotID, what are the two source SlotIDs
-            # (one per team) from the previous round?
-            # R1 → no source (None, None)
-            # R2 → two R1 slots
-            # S16 → two R2 slots
-            # E8 → two S16 slots
-            # FF → two E8 slots
-            # NCG → two FF slots
-            def _source_slots(slot_id: str):
-                """Return (source_slot_for_team_a_side, source_slot_for_team_b_side)."""
-                if slot_id is None:
-                    return None, None
-                if slot_id == NCG_SLOT_ID:
-                    # Two FF games feed into NCG
-                    ff_ids = [_ff_slot_id(ra, rb) for ra, rb in _FF_PAIRS]
-                    return (ff_ids[0], ff_ids[1]) if len(ff_ids) >= 2 else (None, None)
-                if slot_id.endswith("_FF"):
-                    # Two E8 games feed into FF
-                    regions = slot_id.replace("_FF", "")   # e.g. "WX"
-                    if len(regions) == 2:
-                        ra, rb = regions[0], regions[1]
-                        return f"{ra}_E8_1v2", f"{rb}_E8_1v2"
-                    return None, None
-                # Parse region and round from slot_id like "W_R2_1v8"
-                parts = slot_id.split("_", 2)   # ["W", "R2", "1v8"]
-                if len(parts) != 3:
-                    return None, None
-                region, rnd_tag, _ = parts
-                if rnd_tag == "R1":
-                    return None, None   # seeded in, no source
-                if rnd_tag == "R2":
-                    # Source = the two R1 games in this pod
-                    seeds_str = parts[2]   # e.g. "1v8"
-                    s1, s2 = [int(x) for x in seeds_str.split("v")]
-                    # Find which R1 pairs belong to this pod
-                    for pod_seeds, (l1, l2) in _R2_PODS:
-                        if s1 == l1 and s2 == l2:
-                            # R1 pairs in this pod
-                            r1_pairs_in_pod = [(a, b) for a, b in _R1_SEED_PAIRS if a in pod_seeds]
-                            if len(r1_pairs_in_pod) >= 2:
-                                sa1, sb1 = r1_pairs_in_pod[0]
-                                sa2, sb2 = r1_pairs_in_pod[1]
-                                return f"{region}_R1_{sa1}v{sb1}", f"{region}_R1_{sa2}v{sb2}"
-                    return None, None
-                if rnd_tag == "S16":
-                    seeds_str = parts[2]
-                    s1, s2 = [int(x) for x in seeds_str.split("v")]
-                    # Find which R2 slots belong to this S16 half
-                    for half_seeds, (l1, l2) in _S16_HALVES:
-                        if s1 == l1 and s2 == l2:
-                            r2_slots = [f"{region}_R2_{la}v{lb}"
-                                        for pod_seeds, (la, lb) in _R2_PODS
-                                        if pod_seeds.issubset(half_seeds)]
-                            if len(r2_slots) >= 2:
-                                return r2_slots[0], r2_slots[1]
-                    return None, None
-                if rnd_tag == "E8":
-                    return f"{region}_S16_1v4", f"{region}_S16_2v3"
-                return None, None
+            # Build a lookup: TeamID -> SlotID they won to get to the bracket
+            # For each game row, the Selected team won that SlotID.
+            # We key by TeamID to avoid name-matching issues.
+            selected_tid_to_slot = {}
+            for _, brow in bracket.iterrows():
+                sid = brow.get("SlotID")
+                if sid is None:
+                    continue
+                # Which team was selected (predicted winner)?
+                if brow["Selected"] == brow["ATeamName"]:
+                    selected_tid_to_slot[str(brow["ATeamID"])] = sid
+                else:
+                    selected_tid_to_slot[str(brow["BTeamID"])] = sid
 
             # Build per-team annotations
             actual_a_names, actual_a_seeds, actual_a_tids = [], [], []
             actual_b_names, actual_b_seeds, actual_b_tids = [], [], []
 
             for _, row in bracket.iterrows():
-                sid = row.get("SlotID")
-                src_a, src_b = _source_slots(sid)
+                round_label = str(row.get("Round", ""))
+
+                # R1: teams are seeded in directly — no source slot
+                if round_label == "Round 1":
+                    actual_a_names.append(None)
+                    actual_a_seeds.append(None)
+                    actual_a_tids.append(None)
+                    actual_b_names.append(None)
+                    actual_b_seeds.append(None)
+                    actual_b_tids.append(None)
+                    continue
+
+                a_tid = str(row["ATeamID"])
+                b_tid = str(row["BTeamID"])
+
+                # Source slot = the slot each team won to get here
+                src_a = selected_tid_to_slot.get(a_tid)
+                src_b = selected_tid_to_slot.get(b_tid)
 
                 def _get_actual(src):
                     if src is None:
@@ -925,45 +895,8 @@ def fill_bracket(
                         return None, None, None
                     return info["winner_name"], info["winner_seed"], info["winner_tid"]
 
-                # Determine which source slot belongs to which team (A or B)
-                # by checking which team's seed falls in which source slot's seed-set
-                sa = int(float(row["Seed_A"]))
-                sb = int(float(row["Seed_B"]))
-
-                def _seed_in_slot(seed, slot_id):
-                    if slot_id is None:
-                        return False
-                    parts = slot_id.split("_", 2)
-                    if len(parts) < 3:
-                        return False
-                    rnd_tag = parts[1]
-                    if rnd_tag == "R1":
-                        sv = [int(x) for x in parts[2].split("v")]
-                        return seed in sv
-                    if rnd_tag == "R2":
-                        sv = [int(x) for x in parts[2].split("v")]
-                        l1, l2 = sv[0], sv[1]
-                        for pod_seeds, (pl1, pl2) in _R2_PODS:
-                            if pl1 == l1 and pl2 == l2:
-                                return seed in pod_seeds
-                    if rnd_tag == "S16":
-                        sv = [int(x) for x in parts[2].split("v")]
-                        l1, l2 = sv[0], sv[1]
-                        for half_seeds, (hl1, hl2) in _S16_HALVES:
-                            if hl1 == l1 and hl2 == l2:
-                                return seed in half_seeds
-                    if rnd_tag == "E8":
-                        return True   # all seeds possible
-                    return False
-
-                # Assign source slots to A and B teams by seed membership
-                if _seed_in_slot(sa, src_a):
-                    src_for_a, src_for_b = src_a, src_b
-                else:
-                    src_for_a, src_for_b = src_b, src_a
-
-                an, as_, at = _get_actual(src_for_a)
-                bn, bs_, bt = _get_actual(src_for_b)
+                an, as_, at = _get_actual(src_a)
+                bn, bs_, bt = _get_actual(src_b)
 
                 actual_a_names.append(an)
                 actual_a_seeds.append(as_)
