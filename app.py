@@ -748,27 +748,140 @@ def make_header_cells(rounds, rtl=False):
         cells.append(f'<div class="round-header-cell">{inner}</div>')
     return "".join(cells)
 
-hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
-hdr_right = make_header_cells(REGION_ROUNDS, rtl=True)
+tab_bracket, tab_probs = st.tabs(["🏀 Bracket", "📊 Round Probabilities"])
 
-headers_html = (
-    f'<div class="round-headers-row">'
-    f'<div class="round-headers-left" style="padding-right:{SIDE_PAD}px;">{hdr_left}</div>'
-    f'<div class="round-headers-right" style="padding-left:{SIDE_PAD}px;">{hdr_right}</div>'
-    f'</div>'
-)
+with tab_bracket:
+    hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
+    hdr_right = make_header_cells(REGION_ROUNDS, rtl=True)
 
-html = headers_html
-html += '<div class="bracket-wrapper">'
-html += f'<div class="side-half" style="padding-right:{SIDE_PAD}px;">'
-for r in left_regions:
-    html += region_html(r, rtl=False)
-html += '</div>'
-html += champ_html()
-html += f'<div class="side-half" style="padding-left:{SIDE_PAD}px;">'
-for r in right_regions:
-    html += region_html(r, rtl=True)
-html += '</div>'
-html += '</div>'
+    headers_html = (
+        f'<div class="round-headers-row">'
+        f'<div class="round-headers-left" style="padding-right:{SIDE_PAD}px;">{hdr_left}</div>'
+        f'<div class="round-headers-right" style="padding-left:{SIDE_PAD}px;">{hdr_right}</div>'
+        f'</div>'
+    )
 
-st.markdown(html, unsafe_allow_html=True)
+    html = headers_html
+    html += '<div class="bracket-wrapper">'
+    html += f'<div class="side-half" style="padding-right:{SIDE_PAD}px;">'
+    for r in left_regions:
+        html += region_html(r, rtl=False)
+    html += '</div>'
+    html += champ_html()
+    html += f'<div class="side-half" style="padding-left:{SIDE_PAD}px;">'
+    for r in right_regions:
+        html += region_html(r, rtl=True)
+    html += '</div>'
+    html += '</div>'
+
+    st.markdown(html, unsafe_allow_html=True)
+
+with tab_probs:
+    adv_path = "adv_2025.csv"
+    if not os.path.exists(adv_path):
+        st.error(f"Could not find {adv_path}. Make sure it's in the same directory as app.py.")
+    else:
+        adv = pd.read_csv(adv_path)
+
+        round_cols   = ["Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship", "Champion"]
+        display_cols = ["TeamName", "SeedNum"] + round_cols
+        adv_display  = adv[display_cols].copy().rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
+
+        col_labels = {
+            "Team": "Team", "Seed": "Seed",
+            "Round of 32": "R32", "Sweet 16": "S16", "Elite 8": "E8",
+            "Final Four": "FF", "Championship": "Championship", "Champion": "Champion",
+        }
+        all_cols = ["Team", "Seed"] + round_cols
+
+        # Sort controls
+        sc1, sc2, _ = st.columns([2, 1.5, 6])
+        with sc1:
+            sort_col = st.selectbox(
+                "Sort by",
+                options=all_cols,
+                format_func=lambda c: col_labels[c],
+                index=all_cols.index("Champion"),
+                key="adv_sort_col",
+            )
+        with sc2:
+            default_asc = sort_col in ("Team", "Seed")
+            sort_asc = st.selectbox(
+                "Order",
+                options=[True, False],
+                format_func=lambda x: "Ascending ↑" if x else "Descending ↓",
+                index=0 if default_asc else 1,
+                key="adv_sort_asc",
+            )
+
+        adv_sorted = adv_display.sort_values(sort_col, ascending=sort_asc)
+
+        def pct_to_style(val):
+            if pd.isna(val):
+                return "background:transparent;"
+            v = float(val)
+            r = int(255 - (255 - 201) * v)
+            g = int(253 - (253 - 123) * v)
+            b = int(245 - (245 -   0) * v)
+            text = "#fff" if v > 0.5 else "#333"
+            return f"background:rgb({r},{g},{b});color:{text};"
+
+        def fmt_pct(val):
+            return "—" if pd.isna(val) else f"{float(val)*100:.1f}%"
+
+        # Build header
+        header_cells = ""
+        for col in all_cols:
+            label  = col_labels[col]
+            active = col == sort_col
+            arrow  = ("↓" if not sort_asc else "↑") if active else ""
+            align  = "left" if col in ("Team", "Seed") else "center"
+            color  = "color:#c97b00;" if active else ""
+            header_cells += (
+                f'<th style="padding:9px 14px;text-align:{align};font-family:\'DM Sans\',sans-serif;'
+                f'font-size:0.70rem;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;'
+                f'border-bottom:2px solid #ddd9d2;white-space:nowrap;{color}">'
+                f'{label}{" " + arrow if arrow else ""}</th>'
+            )
+
+        # Build rows
+        rows_html = ""
+        for i, (_, row) in enumerate(adv_sorted.iterrows()):
+            row_bg = "#fff" if i % 2 == 0 else "#faf8f4"
+            cells  = ""
+            for col in all_cols:
+                val = row[col]
+                if col == "Team":
+                    cells += (
+                        f'<td style="padding:7px 14px;font-family:\'DM Sans\',sans-serif;'
+                        f'font-size:0.83rem;font-weight:500;white-space:nowrap;">{val}</td>'
+                    )
+                elif col == "Seed":
+                    cells += (
+                        f'<td style="padding:7px 14px;text-align:center;font-family:\'DM Sans\',sans-serif;'
+                        f'font-size:0.83rem;color:#c97b00;font-weight:700;">{int(val)}</td>'
+                    )
+                else:
+                    cs = pct_to_style(val)
+                    cells += (
+                        f'<td style="padding:7px 14px;text-align:center;font-family:\'DM Sans\',sans-serif;'
+                        f'font-size:0.83rem;{cs}">{fmt_pct(val)}</td>'
+                    )
+            rows_html += f'<tr style="background:{row_bg};">{cells}</tr>'
+
+        table_html = f"""
+<style>
+#adv-wrap {{ overflow-x:auto; border-radius:8px; border:1px solid #ddd9d2;
+             box-shadow:0 2px 10px rgba(0,0,0,0.07); margin-top:8px; }}
+#adv-tbl  {{ border-collapse:collapse; width:100%; background:#fff; }}
+#adv-tbl thead {{ background:#faf8f4; }}
+#adv-tbl tbody tr:hover {{ filter:brightness(0.96); }}
+</style>
+<div id="adv-wrap">
+  <table id="adv-tbl">
+    <thead><tr>{header_cells}</tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>"""
+
+        st.markdown(table_html, unsafe_allow_html=True)
