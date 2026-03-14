@@ -51,6 +51,20 @@ if has_results:
 else:
     results_cache = {}
 
+# ── DEBUG ──────────────────────────────────────────────────────────────────────
+st.write(f"has_results: {has_results}")
+st.write(f"bracket columns: {list(bracket.columns)}")
+st.write(f"results_cache size: {len(results_cache)}")
+if results_cache:
+    first_key = next(iter(results_cache))
+    st.write(f"sample entry [{first_key}]: {results_cache[first_key]}")
+else:
+    # Show what ActualA looks like directly in bracket
+    if "ActualA" in bracket.columns:
+        st.write(f"ActualA sample: {bracket['ActualA'].head(5).tolist()}")
+        st.write(f"ActualATid sample: {bracket['ActualATid'].head(5).tolist()}")
+# ── END DEBUG ──────────────────────────────────────────────────────────────────
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def prob_color(p):
