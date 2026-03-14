@@ -850,23 +850,29 @@ with tab_probs:
             box-shadow: 0 2px 10px rgba(0,0,0,0.07);
             overflow: hidden; display: inline-block; max-width: 100%; }}
 
-  table  {{ border-collapse: collapse; background: #fff; }}
+  table  {{ border-collapse: collapse; background: #fff; table-layout: fixed; }}
   thead  {{ background: #faf8f4; }}
   th     {{ padding: 9px 16px; font-size: 0.68rem; font-weight: 800;
             letter-spacing: 0.07em; text-transform: uppercase;
             border-bottom: 2px solid #ddd9d2; white-space: nowrap;
             cursor: pointer; user-select: none; color: #888;
-            transition: color 0.15s; }}
+            transition: color 0.15s; overflow: hidden; text-overflow: ellipsis; }}
   th:hover {{ color: #555; }}
   th.active {{ color: #c97b00; }}
-  td {{ padding: 6px 16px; font-size: 0.82rem; white-space: nowrap; }}
+  td {{ padding: 6px 16px; font-size: 0.82rem; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }}
   tbody tr:nth-child(even) {{ background: #faf8f4; }}
   tbody tr:hover {{ filter: brightness(0.96); }}
   .arrow {{ font-size: 0.65rem; margin-left: 3px; opacity: 0.8; }}
+
+  col.col-team  {{ width: 160px; }}
+  col.col-seed  {{ width: 52px; }}
+  col.col-round {{ width: 108px; }}
 </style>
 </head>
 <body>
 <div id="outer"><div id="wrap"><table id="tbl">
+  <colgroup id="colgroup"></colgroup>
   <thead id="thead"></thead>
   <tbody id="tbody"></tbody>
 </table></div></div>
@@ -895,6 +901,17 @@ function fmtPct(v) {{
 }}
 
 function render() {{
+  // Colgroup — equal width for all round columns
+  const colgroup = document.getElementById("colgroup");
+  colgroup.innerHTML = "";
+  ALL_COLS.forEach(col => {{
+    const c = document.createElement("col");
+    if (col === "Team")       c.className = "col-team";
+    else if (col === "Seed")  c.className = "col-seed";
+    else                      c.className = "col-round";
+    colgroup.appendChild(c);
+  }});
+
   // Header
   const thead = document.getElementById("thead");
   thead.innerHTML = "";
