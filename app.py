@@ -38,6 +38,29 @@ ROUND_SHORT = {
     "Championship":             "Champion",
 }
 
+# ── Region layout per year ────────────────────────────────────────────────────
+# Order: (TL, BL, TR, BR) — matching ESPN/CBS bracket layout.
+# W always plays X in FF, Y always plays Z in FF.
+# Left side = TL + BL, right side = TR + BR.
+# Within each side, first = top region, second = bottom region.
+_REGION_LAYOUTS = {
+    2017: ("W", "X", "Y", "Z"),
+    2018: ("Y", "Z", "W", "X"),
+    2019: ("W", "X", "Z", "Y"),
+    2021: ("X", "W", "Z", "Y"),
+    2022: ("X", "W", "Z", "Y"),
+    2023: ("X", "W", "Y", "Z"),
+    2024: ("W", "X", "Z", "Y"),
+    2025: ("Y", "Z", "W", "X"),
+}
+# Default layout if year not in map
+_DEFAULT_LAYOUT = ("W", "X", "Y", "Z")
+
+
+def _get_layout(year):
+    """Return (TL, BL, TR, BR) region layout for a given year."""
+    return _REGION_LAYOUTS.get(year, _DEFAULT_LAYOUT)
+
 
 @st.cache_data
 def _load_bracket_year(year):
@@ -711,14 +734,16 @@ def region_html(region, rtl=False):
 
 # ── Championship centre ────────────────────────────────────────────────────────
 
-def champ_html():
+def champ_html(layout):
+    """layout = (TL, BL, TR, BR) region letters."""
     ff_games   = bracket[bracket["Round"] == "Final Four"].reset_index(drop=True)
     champ_game = bracket[bracket["Round"] == "Championship"].reset_index(drop=True)
 
-    left_set  = {"W", "X"}
-    right_set = {"Y", "Z"}
-    top_left_region  = "W"   # W is top region on left side → goes on top in left FF
-    top_right_region = "Y"   # Y is top region on right side → goes on top in right FF
+    # Left side = TL + BL, right side = TR + BR
+    left_set  = {layout[0], layout[1]}
+    right_set = {layout[2], layout[3]}
+    top_left_region  = layout[0]   # TL goes on top in left FF
+    top_right_region = layout[2]   # TR goes on top in right FF
 
     ff_left = ff_right = None
     for _, row in ff_games.iterrows():
@@ -973,9 +998,11 @@ with tab_bracket:
     # Reload bracket data for selected year
     bracket, shap_cache, results_cache = _load_bracket_year(bracket_year)
 
+    # Region layout for this year: (TL, BL, TR, BR)
+    _layout = _get_layout(bracket_year)
     regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region_B"].dropna().unique())
-    left_regions  = [r for r in ["W", "X"] if r in regions]
-    right_regions = [r for r in ["Y", "Z"] if r in regions]
+    left_regions  = [r for r in [_layout[0], _layout[1]] if r in regions]   # TL, BL
+    right_regions = [r for r in [_layout[2], _layout[3]] if r in regions]   # TR, BR
 
     # Title bar (rendered as HTML for consistent styling)
     with _bcol_c:
@@ -1002,7 +1029,7 @@ with tab_bracket:
     for r in left_regions:
         html += region_html(r, rtl=False)
     html += '</div>'
-    html += champ_html()
+    html += champ_html(_layout)
     html += f'<div class="side-half" style="padding-left:{SIDE_PAD}px;">'
     for r in right_regions:
         html += region_html(r, rtl=True)
