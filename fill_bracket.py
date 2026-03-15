@@ -82,6 +82,32 @@ UPSET_ROUNDS = set(ROUND_LABELS[:4])
 EPSILON = 1.0
 
 # ---------------------------------------------------------------------------
+# Round label normaliser — df may use different names than fill_bracket
+# ---------------------------------------------------------------------------
+# The historical df built from mm_results uses "Round 5 (Final Four)" and
+# "Round 6 (National Final)", while fill_bracket uses "Final Four" and
+# "Championship".  This map lets us normalise any incoming round string.
+
+_ROUND_ALIASES = {
+    # Standard fill_bracket labels → themselves (no-op)
+    "Round 1":                  "Round 1",
+    "Round 2":                  "Round 2",
+    "Round 3 (Sweet Sixteen)":  "Round 3 (Sweet Sixteen)",
+    "Round 4 (Elite Eight)":    "Round 4 (Elite Eight)",
+    "Final Four":               "Final Four",
+    "Championship":             "Championship",
+    # Aliases from mm_results / notebook
+    "Round 5 (Final Four)":     "Final Four",
+    "Round 6 (National Final)": "Championship",
+}
+
+
+def _normalise_round(label: str) -> str | None:
+    """Map any known round label to the canonical fill_bracket label."""
+    return _ROUND_ALIASES.get(str(label).strip())
+
+
+# ---------------------------------------------------------------------------
 # Slot ID helpers
 # ---------------------------------------------------------------------------
 # SlotID encodes bracket position using region + the minimum possible seeds
@@ -154,6 +180,53 @@ def _ff_slot_id(ra: str, rb: str) -> str:
     return f"{ra}{rb}_FF"
 
 NCG_SLOT_ID = "WXYZ_NCG"
+
+
+# ---------------------------------------------------------------------------
+# Canonical slot game map — which source slots feed into each later slot
+# ---------------------------------------------------------------------------
+# For every region R, this builds:
+#   R_R2_1v8   ← (R_R1_1v16, R_R1_8v9)
+#   R_R2_4v5   ← (R_R1_5v12, R_R1_4v13)
+#   R_R2_3v6   ← (R_R1_6v11, R_R1_3v14)
+#   R_R2_2v7   ← (R_R1_7v10, R_R1_2v15)
+#   R_S16_1v4  ← (R_R2_1v8,  R_R2_4v5)
+#   R_S16_2v3  ← (R_R2_3v6,  R_R2_2v7)
+#   R_E8_1v2   ← (R_S16_1v4, R_S16_2v3)
+#   WX_FF      ← (W_E8_1v2,  X_E8_1v2)
+#   YZ_FF      ← (Y_E8_1v2,  Z_E8_1v2)
+#   WXYZ_NCG   ← (WX_FF,     YZ_FF)
+
+def _build_slot_game_map() -> dict:
+    """Return {child_slot: (source_slot_a, source_slot_b)} for the full bracket."""
+    gm = {}
+    for R in ("W", "X", "Y", "Z"):
+        r1 = _r1_slot_ids(R)   # 8 ids, matching _R1_SEED_PAIRS order
+        r2 = _r2_slot_ids(R)   # 4 ids
+        r3 = _r3_slot_ids(R)   # 2 ids
+        r4 = _r4_slot_ids(R)   # 1 id
+
+        # R2: each game fed by two adjacent R1 games
+        for i, (a, b) in enumerate(_R2_FOLD):
+            gm[r2[i]] = (r1[a], r1[b])
+        # S16: each game fed by two R2 games
+        for i, (a, b) in enumerate(_R3_FOLD):
+            gm[r3[i]] = (r2[a], r2[b])
+        # E8: fed by two S16 games
+        for i, (a, b) in enumerate(_R4_FOLD):
+            gm[r4[i]] = (r3[a], r3[b])
+
+    # Final Four
+    gm[_ff_slot_id("W", "X")] = ("W_E8_1v2", "X_E8_1v2")
+    gm[_ff_slot_id("Y", "Z")] = ("Y_E8_1v2", "Z_E8_1v2")
+
+    # Championship
+    gm[NCG_SLOT_ID] = (_ff_slot_id("W", "X"), _ff_slot_id("Y", "Z"))
+
+    return gm
+
+
+SLOT_GAME_MAP = _build_slot_game_map()
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +894,11 @@ def fill_bracket(
 
             def _df_slot_id(row):
                 region = row["_region"]
-                round_label = str(row["Round"]) if "Round" in row.index else None
+                raw_label = str(row["Round"]) if "Round" in row.index else None
+                if raw_label is None:
+                    return None
+                # Normalise: df may use "Round 5 (Final Four)" etc.
+                round_label = _normalise_round(raw_label)
                 if round_label is None:
                     return None
                 sa = int(float(row["Seed_A"]))
