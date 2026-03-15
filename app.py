@@ -533,15 +533,25 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
                     actual_top=None, actual_top_seed=None, actual_top_tid=None,
                     actual_bot=None, actual_bot_seed=None, actual_bot_tid=None,
                     top_tid=None, bot_tid=None,
-                    show_seed_prob=True):
+                    show_seed_prob=True,
+                    prob_is_top=False):
     """
     actual_top/actual_bot: the two actual teams from df for this slot.
     actual_top = df's A team, actual_bot = df's B team (not top/bot ordered).
     We check whether each predicted team (top_tid, bot_tid) appears in
     {actual_top_tid, actual_bot_tid}. If yes → green. If no → strikethrough
     and show the actual team that should be there in red.
+
+    prob_is_top: if True, fp is already P(top team wins); use directly.
+                 if False (default), fp is P(favorite wins) and needs
+                 seed-based reorientation.
     """
-    if top_seed <= bot_seed:
+    if prob_is_top:
+        model_top = fp if not pd.isna(fp) else float("nan")
+        model_bot = (1 - fp) if not pd.isna(fp) else float("nan")
+        seed_top_p = sp if not pd.isna(sp) else float("nan")
+        seed_bot_p = (1 - sp) if not pd.isna(sp) else float("nan")
+    elif top_seed <= bot_seed:
         model_top, model_bot = fp, 1 - fp
         seed_top_p, seed_bot_p = sp, 1 - sp
     else:
@@ -843,31 +853,41 @@ def champ_html(layout):
     def ff_card_html(row, top_region):
         if row is None:
             return ""
+        aprob = row.get("AProb", float("nan"))  # P(A team wins)
         fp = row.get("FProb", float("nan"))
         sp = row.get("SProb", float("nan"))
         sa, sb = int(row["Seed_A"]), int(row["Seed_B"])
         ra = str(row.get("Region_A", ""))
         rb = str(row.get("Region_B", ""))
         mid = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
+
+        # Determine top/bot based on region layout, and compute
+        # top_prob directly from AProb so it follows the team correctly.
         if ra == top_region:
+            # A team is on top
             top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
             top_id, bot_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
+            top_prob = aprob
         elif rb == top_region:
+            # B team is on top
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
             top_id, bot_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
+            top_prob = 1 - aprob if not pd.isna(aprob) else aprob
         elif sa <= sb:
             top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
             top_id, bot_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
+            top_prob = aprob
         else:
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
             top_id, bot_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
+            top_prob = 1 - aprob if not pd.isna(aprob) else aprob
 
         at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_for_ff(mid, row, top_region)
-        return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp, mid,
+        return game_card_parts(top_n, top_s, bot_n, bot_s, top_prob, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
                                top_tid=top_id, bot_tid=bot_id,
-                               show_seed_prob=False)
+                               show_seed_prob=False, prob_is_top=True)
 
     html = '<div class="champ-col"><div class="champ-inner">'
     html += f'<div class="champ-ff-col">{ff_card_html(ff_left, top_left_region)}</div>'
@@ -876,6 +896,7 @@ def champ_html(layout):
     html += '<div class="champ-ncg-col">'
     if not champ_game.empty:
         row  = champ_game.iloc[0]
+        aprob = row.get("AProb", float("nan"))
         fp   = row.get("FProb", float("nan"))
         sp   = row.get("SProb", float("nan"))
         sa, sb = int(row["Seed_A"]), int(row["Seed_B"])
@@ -885,23 +906,27 @@ def champ_html(layout):
         if ra in left_set:
             tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
             t_id, b_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
+            top_prob = aprob
         elif rb in left_set:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
             t_id, b_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
+            top_prob = 1 - aprob if not pd.isna(aprob) else aprob
         elif sa <= sb:
             tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
             t_id, b_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
+            top_prob = aprob
         else:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
             t_id, b_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
+            top_prob = 1 - aprob if not pd.isna(aprob) else aprob
 
         at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_for_ncg(mid, row)
 
-        card = game_card_parts(tn, ts, bn, bs, fp, sp, mid,
+        card = game_card_parts(tn, ts, bn, bs, top_prob, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
                                top_tid=t_id, bot_tid=b_id,
-                               show_seed_prob=False)
+                               show_seed_prob=False, prob_is_top=True)
 
         # Apply champ-game styling to the card (gold border)
         card = card.replace('<div class="game">', '<div class="champ-game game">', 1)
@@ -1080,7 +1105,7 @@ with tab_bracket:
     # Title bar (rendered as HTML for consistent styling)
     with _bcol_c:
         st.markdown(
-            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.75rem;'
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.25rem;'
             f'font-weight:700;color:#c97b00;text-align:center;padding-top:6px;">'
             f'{bracket_year} Bracket</div>',
             unsafe_allow_html=True,
