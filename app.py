@@ -40,11 +40,16 @@ else:
 
 # ── Actual results cache — keyed by MatchID ────────────────────────────────
 has_results = "ActualA" in bracket.columns
+_results_cols = ["MatchID","ATeamID","BTeamID",
+                 "ActualA","ActualASeed","ActualATid",
+                 "ActualB","ActualBSeed","ActualBTid"]
+# Include winner columns if present (added by updated fill_bracket)
+for _wc in ["ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
+    if _wc in bracket.columns:
+        _results_cols.append(_wc)
 if has_results:
     results_cache = (
-        bracket[["MatchID","ATeamID","BTeamID",
-                  "ActualA","ActualASeed","ActualATid",
-                  "ActualB","ActualBSeed","ActualBTid"]]
+        bracket[_results_cols]
         .set_index("MatchID")
         .to_dict(orient="index")
     )
@@ -371,24 +376,53 @@ h1 {
     padding: 0 4px;
 }
 .champ-ff-col  { flex: 1; min-width: 0; }
-.champ-ncg-col { flex: 1; min-width: 0; }
+.champ-ncg-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
 .champ-game {
     background: #ffffff;
     border: 1px solid #c97b0055;
     border-radius: 8px;
-    overflow: hidden;
+    overflow: visible;
     width: 100%;
     box-shadow: 0 0 18px rgba(201,123,0,0.09);
+    position: relative;
 }
-.champion-banner {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.76rem;
-    letter-spacing: 0.14em;
-    color: #c97b00;
+.champion-box {
+    margin-top: 10px;
+    background: linear-gradient(135deg, #fff8ec 0%, #fff3d8 100%);
+    border: 2px solid #c97b00;
+    border-radius: 8px;
+    padding: 8px 12px;
     text-align: center;
-    padding: 5px 8px;
-    background: #fff8ec;
-    border-top: 1px solid #c97b0033;
+    box-shadow: 0 2px 12px rgba(201,123,0,0.15);
+    position: relative;
+}
+.champion-box .champ-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    color: #c97b00;
+    margin-bottom: 2px;
+}
+.champion-box .champ-name {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #333;
+}
+.champion-box .champ-name.wrong {
+    text-decoration: line-through;
+    color: #ccc;
+}
+.champion-box .champ-name.correct {
+    color: #2e7d32;
+}
+.actual-champ {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #d32f2f;
+    text-align: center;
+    padding-top: 4px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -705,13 +739,42 @@ def champ_html():
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
                                top_tid=t_id, bot_tid=b_id)
 
-        # Insert champion banner before closing </div>
+        # Apply champ-game styling to the card (gold border)
+        card = card.replace('<div class="game">', '<div class="champ-game game">', 1)
+        html += card
+
+        # ── Separate champion box below ──
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
-        banner   = f'<div class="champion-banner">🏆 {win_seed} {winner}</div>'
-        card     = card[:-len("</div>")] + banner + "</div>"
-        card     = card.replace('<div class="game">', '<div class="champ-game game">', 1)
-        html    += card
+
+        # Check if predicted champ matches actual champ
+        actual_winner = None
+        actual_winner_seed = None
+        if mid and mid in results_cache:
+            rc = results_cache[mid]
+            def _clean_w(v):
+                return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+            actual_winner      = _clean_w(rc.get("ActualWinner"))
+            actual_winner_seed = _clean_w(rc.get("ActualWinnerSeed"))
+
+        # Determine if predicted champion is correct
+        if actual_winner is not None:
+            champ_correct = (winner == actual_winner)
+            champ_cls = "champ-name correct" if champ_correct else "champ-name wrong"
+        else:
+            champ_cls = "champ-name"
+            champ_correct = True  # no data to compare
+
+        html += '<div class="champion-box">'
+        html += '<div class="champ-label">🏆 CHAMPION</div>'
+        html += f'<div class="{champ_cls}">{win_seed} {winner}</div>'
+        html += '</div>'
+
+        # Show actual champion below if prediction was wrong
+        if actual_winner is not None and not champ_correct:
+            act_seed_str = f"{int(actual_winner_seed)} " if actual_winner_seed is not None else ""
+            html += f'<div class="actual-champ">🏆 {act_seed_str}{actual_winner}</div>'
+
     html += '</div>'
 
     html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'

@@ -968,8 +968,28 @@ def fill_bracket(
             bracket["ActualB"]      = actual_b_names
             bracket["ActualBSeed"]  = actual_b_seeds
             bracket["ActualBTid"]   = actual_b_tids
+
+            # Add actual winner columns (from slot_lookup which has AWon resolved)
+            actual_winners      = []
+            actual_winner_seeds = []
+            actual_winner_tids  = []
+            for _, row in bracket.iterrows():
+                sid = row.get("SlotID")
+                if sid and sid in slot_lookup:
+                    sw = slot_lookup[sid]
+                    actual_winners.append(sw["winner_name"])
+                    actual_winner_seeds.append(sw["winner_seed"])
+                    actual_winner_tids.append(sw["winner_tid"])
+                else:
+                    actual_winners.append(None)
+                    actual_winner_seeds.append(None)
+                    actual_winner_tids.append(None)
+            bracket["ActualWinner"]     = actual_winners
+            bracket["ActualWinnerSeed"] = actual_winner_seeds
+            bracket["ActualWinnerTid"]  = actual_winner_tids
         else:
-            for col in ["ActualA","ActualASeed","ActualATid","ActualB","ActualBSeed","ActualBTid"]:
+            for col in ["ActualA","ActualASeed","ActualATid","ActualB","ActualBSeed","ActualBTid",
+                        "ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
                 bracket[col] = None
 
         results[key] = bracket
