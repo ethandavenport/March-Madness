@@ -377,7 +377,7 @@ h1 {
 }
 .champ-ff-col  { flex: 1; min-width: 0; }
 .champ-ncg-col {
-    flex: 1.25; min-width: 0;
+    flex: 1; min-width: 0;
     display: flex; flex-direction: column; align-items: stretch;
 }
 .champ-game {
@@ -398,10 +398,11 @@ h1 {
     background: linear-gradient(135deg, #fff8ec 0%, #fff3d8 100%);
     border: 2px solid #c97b00;
     border-radius: 8px;
-    padding: 10px 14px;
+    padding: 16px 14px;
     text-align: center;
     box-shadow: 0 2px 12px rgba(201,123,0,0.15);
-    width: 55%;
+    /* match the NCG column width: 1 of 3 equal cols minus gaps */
+    width: calc((100% - 16px) / 3);
     align-self: center;
 }
 .champion-box .champ-label {
