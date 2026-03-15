@@ -503,27 +503,37 @@ st.markdown('<p class="subtitle">Model Predictions · Mixture of Experts</p>', u
 
 # ── Game card renderers ────────────────────────────────────────────────────────
 
-def team_row_html(name, seed, model_p, seed_p, state="neutral"):
+def team_row_html(name, seed, model_p, seed_p, state="neutral", show_seed_prob=True):
     """state: 'correct', 'wrong', or 'neutral'"""
     mc = prob_color(model_p)
-    sc = prob_color(seed_p)
     mp = f"{model_p*100:.0f}%" if not pd.isna(model_p) else "—"
-    sp = f"{seed_p*100:.0f}%"  if not pd.isna(seed_p)  else "—"
     name_class = f"team-name {state}" if state != "neutral" else "team-name"
-    return (
-        f'<div class="team">'
-        f'<span class="seed">{seed}</span>'
-        f'<span class="{name_class}">{name}</span>'
-        f'<span class="pct" style="color:{mc};">{mp}</span>'
-        f'<span class="pct" style="color:{sc};">{sp}</span>'
-        f'</div>'
-    )
+    if show_seed_prob:
+        sc = prob_color(seed_p)
+        sp = f"{seed_p*100:.0f}%"  if not pd.isna(seed_p)  else "—"
+        return (
+            f'<div class="team">'
+            f'<span class="seed">{seed}</span>'
+            f'<span class="{name_class}">{name}</span>'
+            f'<span class="pct" style="color:{mc};">{mp}</span>'
+            f'<span class="pct" style="color:{sc};">{sp}</span>'
+            f'</div>'
+        )
+    else:
+        return (
+            f'<div class="team" style="grid-template-columns:16px 1fr auto;">'
+            f'<span class="seed">{seed}</span>'
+            f'<span class="{name_class}">{name}</span>'
+            f'<span class="pct" style="color:{mc};">{mp}</span>'
+            f'</div>'
+        )
 
 def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
                     match_id=None, tooltip_side="right",
                     actual_top=None, actual_top_seed=None, actual_top_tid=None,
                     actual_bot=None, actual_bot_seed=None, actual_bot_tid=None,
-                    top_tid=None, bot_tid=None):
+                    top_tid=None, bot_tid=None,
+                    show_seed_prob=True):
     """
     actual_top/actual_bot: the two actual teams from df for this slot.
     actual_top = df's A team, actual_bot = df's B team (not top/bot ordered).
@@ -537,7 +547,10 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
     else:
         model_top, model_bot = 1 - fp, fp
         seed_top_p, seed_bot_p = 1 - sp, sp
-    hdr = '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
+    if show_seed_prob:
+        hdr = '<div class="prob-header"><span></span><span></span><span>Model</span><span>Seed</span></div>'
+    else:
+        hdr = '<div class="prob-header" style="grid-template-columns:16px 1fr auto;"><span></span><span></span><span>Model</span></div>'
 
     actual_tids = {t for t in [actual_top_tid, actual_bot_tid] if t is not None}
 
@@ -598,8 +611,8 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
     return (
         f'<div class="game">'
         f'{above_html}{hdr}'
-        f'{team_row_html(top_name, top_seed, model_top, seed_top_p, state=state_top)}'
-        f'{team_row_html(bot_name, bot_seed, model_bot, seed_bot_p, state=state_bot)}'
+        f'{team_row_html(top_name, top_seed, model_top, seed_top_p, state=state_top, show_seed_prob=show_seed_prob)}'
+        f'{team_row_html(bot_name, bot_seed, model_bot, seed_bot_p, state=state_bot, show_seed_prob=show_seed_prob)}'
         f'{below_html}{tooltip_html}'
         f'</div>'
     )
@@ -853,7 +866,8 @@ def champ_html(layout):
         return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
-                               top_tid=top_id, bot_tid=bot_id)
+                               top_tid=top_id, bot_tid=bot_id,
+                               show_seed_prob=False)
 
     html = '<div class="champ-col"><div class="champ-inner">'
     html += f'<div class="champ-ff-col">{ff_card_html(ff_left, top_left_region)}</div>'
@@ -886,7 +900,8 @@ def champ_html(layout):
         card = game_card_parts(tn, ts, bn, bs, fp, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
-                               top_tid=t_id, bot_tid=b_id)
+                               top_tid=t_id, bot_tid=b_id,
+                               show_seed_prob=False)
 
         # Apply champ-game styling to the card (gold border)
         card = card.replace('<div class="game">', '<div class="champ-game game">', 1)
@@ -1065,7 +1080,7 @@ with tab_bracket:
     # Title bar (rendered as HTML for consistent styling)
     with _bcol_c:
         st.markdown(
-            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.25rem;'
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.75rem;'
             f'font-weight:700;color:#c97b00;text-align:center;padding-top:6px;">'
             f'{bracket_year} Bracket</div>',
             unsafe_allow_html=True,
