@@ -2,10 +2,24 @@ import streamlit as st
 import pandas as pd
 import base64
 import os
+import glob
 
-st.set_page_config(page_title="2025 March Madness", layout="wide")
+st.set_page_config(page_title="March Madness", layout="wide")
 
-bracket = pd.read_csv("bracket_2025.csv")
+# ── Discover available bracket files (bracket_YYYY.csv) ──────────────────────
+_bracket_files = {}
+for f in sorted(glob.glob("bracket_*.csv")):
+    name = os.path.basename(f)
+    # Match bracket_2017.csv .. bracket_2025.csv, skip bracket_all.csv etc.
+    if name.startswith("bracket_") and name[8:-4].isdigit():
+        yr = int(name[8:-4])
+        _bracket_files[yr] = f
+
+if not _bracket_files:
+    st.error("No bracket files found (expected bracket_YYYY.csv).")
+    st.stop()
+
+_bracket_years = sorted(_bracket_files.keys(), reverse=True)
 
 ROUND_ORDER = [
     "Round 1",
@@ -24,37 +38,49 @@ ROUND_SHORT = {
     "Championship":             "Champion",
 }
 
-bracket["Round"] = pd.Categorical(bracket["Round"], categories=ROUND_ORDER, ordered=True)
-bracket = bracket.sort_values("Round")
 
-# ── SHAP cache — read directly from the SHAPPlot column in bracket_2025.csv ──
-if "SHAPPlot" in bracket.columns:
-    shap_cache = (
-        bracket[["MatchID", "SHAPPlot"]]
-        .dropna(subset=["SHAPPlot"])
-        .set_index("MatchID")["SHAPPlot"]
-        .to_dict()
-    )
-else:
-    shap_cache = {}
+@st.cache_data
+def _load_bracket_year(year):
+    """Load bracket_YYYY.csv for a single year and build caches.
+    Returns (bracket_df, shap_cache, results_cache)."""
+    path = _bracket_files[year]
+    df = pd.read_csv(path)
+    df["Round"] = pd.Categorical(df["Round"], categories=ROUND_ORDER, ordered=True)
+    df = df.sort_values("Round")
 
-# ── Actual results cache — keyed by MatchID ────────────────────────────────
-has_results = "ActualA" in bracket.columns
-_results_cols = ["MatchID","ATeamID","BTeamID",
-                 "ActualA","ActualASeed","ActualATid",
-                 "ActualB","ActualBSeed","ActualBTid"]
-# Include winner columns if present (added by updated fill_bracket)
-for _wc in ["ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
-    if _wc in bracket.columns:
-        _results_cols.append(_wc)
-if has_results:
-    results_cache = (
-        bracket[_results_cols]
-        .set_index("MatchID")
-        .to_dict(orient="index")
-    )
-else:
-    results_cache = {}
+    # SHAP cache
+    if "SHAPPlot" in df.columns:
+        sc = (
+            df[["MatchID", "SHAPPlot"]]
+            .dropna(subset=["SHAPPlot"])
+            .set_index("MatchID")["SHAPPlot"]
+            .to_dict()
+        )
+    else:
+        sc = {}
+
+    # Results cache
+    has_results = "ActualA" in df.columns
+    rc_cols = ["MatchID","ATeamID","BTeamID",
+               "ActualA","ActualASeed","ActualATid",
+               "ActualB","ActualBSeed","ActualBTid"]
+    for wc in ["ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
+        if wc in df.columns:
+            rc_cols.append(wc)
+    if has_results:
+        rc = (
+            df[rc_cols]
+            .set_index("MatchID")
+            .to_dict(orient="index")
+        )
+    else:
+        rc = {}
+
+    return df, sc, rc
+
+
+# Initialise with the most recent year (will be overridden in bracket tab)
+bracket, shap_cache, results_cache = _load_bracket_year(_bracket_years[0])
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -448,7 +474,7 @@ h1 {
 """, unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
-st.markdown("<h1>2025 March Madness</h1>", unsafe_allow_html=True)
+st.markdown("<h1>March Madness</h1>", unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Model Predictions · Mixture of Experts</p>', unsafe_allow_html=True)
 
 # ── Game card renderers ────────────────────────────────────────────────────────
@@ -811,9 +837,6 @@ def champ_html():
     return html
 
 # ── Assemble ───────────────────────────────────────────────────────────────────
-regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region_B"].dropna().unique())
-left_regions  = [r for r in ["W", "X"] if r in regions]
-right_regions = [r for r in ["Y", "Z"] if r in regions]
 
 # Round header cells — border only under box content, gaps between rounds.
 # The last cell (E8, index 3) also gets the side-half inner padding so it aligns
@@ -876,12 +899,73 @@ st.markdown("""
 }
 .stTabs [data-baseweb="tab-highlight"] { display: none; }
 .stTabs [data-baseweb="tab-border"]    { display: none; }
+
+/* ── Bracket title bar ── */
+.bracket-title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding: 0 4px;
+}
+.bracket-title-bar .bt-spacer { width: 80px; }
+.bracket-title-bar .bt-title {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #c97b00;
+    text-align: center;
+    flex: 1;
+}
+
+/* ── Style the Streamlit selectbox in bracket tab ── */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    border-color: #ddd9d2;
+    background: #faf8f4;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #333;
+    border-radius: 6px;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
+    border-color: #c97b00;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within {
+    border-color: #c97b00;
+    box-shadow: 0 0 0 2px #c97b0022;
+}
 </style>
 """, unsafe_allow_html=True)
 
 tab_bracket, tab_probs = st.tabs(["⛶  Bracket", "▦  Round Probabilities"])
 
 with tab_bracket:
+    # ── Year selector ──
+    # Use Streamlit columns to place title + dropdown in a single row
+    _bcol_l, _bcol_c, _bcol_r = st.columns([1, 6, 1])
+    with _bcol_r:
+        bracket_year = st.selectbox(
+            "Year", _bracket_years,
+            index=0, key="bracket_year", label_visibility="collapsed"
+        )
+
+    # Reload bracket data for selected year
+    bracket, shap_cache, results_cache = _load_bracket_year(bracket_year)
+
+    regions       = set(bracket["Region_A"].dropna().unique()) | set(bracket["Region_B"].dropna().unique())
+    left_regions  = [r for r in ["W", "X"] if r in regions]
+    right_regions = [r for r in ["Y", "Z"] if r in regions]
+
+    # Title bar (rendered as HTML for consistent styling)
+    with _bcol_c:
+        st.markdown(
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.05rem;'
+            f'font-weight:700;color:#c97b00;text-align:center;padding-top:6px;">'
+            f'{bracket_year} Bracket</div>',
+            unsafe_allow_html=True,
+        )
+
     hdr_left  = make_header_cells(REGION_ROUNDS, rtl=False)
     hdr_right = make_header_cells(REGION_ROUNDS, rtl=True)
 
