@@ -953,8 +953,27 @@ def fill_bracket(
                     actual_b_names.append(None); actual_b_seeds.append(None); actual_b_tids.append(None)
                     continue
 
-                # The two actual teams in this slot game
-                # Store as ActualA = df's A team, ActualB = df's B team
+                # Use SLOT_GAME_MAP to determine which actual team came from
+                # which source slot.  source_a = upper/top feeder game,
+                # source_b = lower/bot feeder game.
+                # The winner of source_a is the "top" actual team (ActualA),
+                # the winner of source_b is the "bot" actual team (ActualB).
+                sources = SLOT_GAME_MAP.get(sid)
+                if sources is not None:
+                    src_a_winner = slot_lookup.get(sources[0])  # upper source
+                    src_b_winner = slot_lookup.get(sources[1])  # lower source
+
+                    if src_a_winner and src_b_winner:
+                        actual_a_names.append(src_a_winner["winner_name"])
+                        actual_a_seeds.append(src_a_winner["winner_seed"])
+                        actual_a_tids.append(src_a_winner["winner_tid"])
+                        actual_b_names.append(src_b_winner["winner_name"])
+                        actual_b_seeds.append(src_b_winner["winner_seed"])
+                        actual_b_tids.append(src_b_winner["winner_tid"])
+                        continue
+
+                # Fallback: use df's A/B ordering (alphabetical) if source
+                # slots aren't available or don't have winners
                 actual_a_names.append(str(dfrow["ATeamName"]))
                 actual_a_seeds.append(int(float(dfrow["Seed_A"])))
                 actual_a_tids.append(str(dfrow["ATeamID"]))
