@@ -363,9 +363,10 @@ h1 {
     transform: translate(-50%, -50%);
     width: 600px;
     z-index: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    /* This container is centered on the bracket midpoint.
+       champ-inner (the games row) is the natural content.
+       champ-bottom hangs below via absolute positioning
+       so it doesn't shift the vertical centering. */
 }
 .champ-inner {
     display: flex;
@@ -374,6 +375,15 @@ h1 {
     gap: 8px;
     width: 100%;
     padding: 0 4px;
+}
+.champ-bottom {
+    position: absolute;
+    left: 0; right: 0;
+    top: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 4px;
 }
 .champ-ff-col  { flex: 1; min-width: 0; }
 .champ-ncg-col {
@@ -389,21 +399,22 @@ h1 {
     box-shadow: 0 0 18px rgba(201,123,0,0.09);
     position: relative;
 }
+.champ-game .team { padding: 8px 7px; min-height: 32px; }
+.champ-game .prob-header { padding: 3px 7px 2px 7px; }
 /* extra bottom margin on the NCG game card to make room for
    the red actual-winner labels that sit below the card */
 .champ-ncg-col .champ-game { margin-bottom: 6px; }
 
 .champion-box {
-    margin-top: 18px;
+    margin-top: 14px;
     background: linear-gradient(135deg, #fff8ec 0%, #fff3d8 100%);
     border: 2px solid #c97b00;
     border-radius: 8px;
-    padding: 16px 14px;
+    padding: 6px 14px;
     text-align: center;
     box-shadow: 0 2px 12px rgba(201,123,0,0.15);
     /* match the NCG column width: 1 of 3 equal cols minus gaps */
     width: calc((100% - 16px) / 3);
-    align-self: center;
 }
 .champion-box .champ-label {
     font-family: 'Bebas Neue', sans-serif;
@@ -757,7 +768,8 @@ def champ_html():
     html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'
     html += '</div>'  # close champ-inner (the row)
 
-    # ── Champion box below the row, centered in champ-col ──
+    # ── Champion box below the row, absolutely positioned so it
+    #    doesn't affect the vertical centering of the games row ──
     if not champ_game.empty:
         row  = champ_game.iloc[0]
         mid  = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
@@ -782,6 +794,7 @@ def champ_html():
             champ_cls = "champ-name"
             champ_correct = True  # no data to compare
 
+        html += '<div class="champ-bottom">'
         html += '<div class="champion-box">'
         html += '<div class="champ-label">🏆 CHAMPION</div>'
         html += f'<div class="{champ_cls}">{win_seed} {winner}</div>'
@@ -791,6 +804,8 @@ def champ_html():
         if actual_winner is not None and not champ_correct:
             act_seed_str = f"{int(actual_winner_seed)} " if actual_winner_seed is not None else ""
             html += f'<div class="actual-champ">🏆 {act_seed_str}{actual_winner}</div>'
+
+        html += '</div>'  # close champ-bottom
 
     html += '</div>'  # close champ-col
     return html
