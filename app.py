@@ -3,6 +3,7 @@ import pandas as pd
 import base64
 import os
 import glob
+from fill_bracket import SLOT_GAME_MAP
 
 st.set_page_config(page_title="March Madness", layout="wide")
 
@@ -420,7 +421,7 @@ h1 {
 .champ-inner {
     display: flex;
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
     width: 100%;
     padding: 0 4px;
@@ -757,8 +758,9 @@ def champ_html(layout):
     if ff_right is None and len(ff_games) > 1:
         ff_right = ff_games.iloc[1]
 
-    def _get_actuals(mid):
-        """Return (at_n,at_s,at_t, ab_n,ab_s,ab_t) from results_cache."""
+    def _get_actuals_raw(mid):
+        """Return raw (at_n,at_s,at_t, ab_n,ab_s,ab_t) from results_cache.
+        These are in source-slot order (upper/lower), NOT layout order."""
         if not mid or mid not in results_cache:
             return None,None,None, None,None,None
         rc = results_cache[mid]
@@ -768,6 +770,62 @@ def champ_html(layout):
             _clean(rc.get("ActualA")),    _clean(rc.get("ActualASeed")), _tid(rc.get("ActualATid")),
             _clean(rc.get("ActualB")),    _clean(rc.get("ActualBSeed")), _tid(rc.get("ActualBTid")),
         )
+
+    def _get_actuals_for_ff(mid, row, top_region):
+        """Return actuals reordered so actual_top = team from top_region,
+        actual_bot = team from the other region."""
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_raw(mid)
+        if at_t is None and ab_t is None:
+            return at_n,at_s,at_t, ab_n,ab_s,ab_t
+
+        # Look up which region each actual team came from.
+        # The FF sources are two E8 winners. We need to check which region
+        # each actual team belongs to using the bracket data.
+        # Simpler: check the df row's actual game — ActualA/ActualB correspond
+        # to source slot order (upper/lower from SLOT_GAME_MAP).
+        # For FF: WX_FF sources are (W_E8_1v2, X_E8_1v2).
+        # We know the source regions from the slot names.
+        sid = row.get("SlotID") if row is not None else None
+        if sid and sid in _ff_source_regions:
+            src_top_region, src_bot_region = _ff_source_regions[sid]
+            # ActualA = winner of first source, ActualB = winner of second source
+            # If first source's region == top_region, ActualA is display top
+            if src_top_region == top_region:
+                return at_n,at_s,at_t, ab_n,ab_s,ab_t
+            else:
+                # Swap: ActualB should be display top
+                return ab_n,ab_s,ab_t, at_n,at_s,at_t
+
+        return at_n,at_s,at_t, ab_n,ab_s,ab_t
+
+    def _get_actuals_for_ncg(mid, row):
+        """Return actuals reordered so actual_top = team from left side,
+        actual_bot = team from right side."""
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_raw(mid)
+        if at_t is None and ab_t is None:
+            return at_n,at_s,at_t, ab_n,ab_s,ab_t
+
+        # NCG sources are (WX_FF, YZ_FF).
+        # ActualA = winner of WX_FF, ActualB = winner of YZ_FF.
+        # We need ActualA on top if WX is on the left, ActualB on top if YZ is on left.
+        # Check: is WX_FF's pair on the left side?
+        wx_regions = {"W", "X"}
+        if wx_regions & left_set:
+            # WX is on the left → ActualA (WX winner) is top
+            return at_n,at_s,at_t, ab_n,ab_s,ab_t
+        else:
+            # YZ is on the left → ActualB (YZ winner) is top
+            return ab_n,ab_s,ab_t, at_n,at_s,at_t
+
+    # Precompute FF source regions from SLOT_GAME_MAP
+    # WX_FF sources = (W_E8_1v2, X_E8_1v2) → regions W, X
+    # YZ_FF sources = (Y_E8_1v2, Z_E8_1v2) → regions Y, Z
+    _ff_source_regions = {}
+    for ff_slot in ["WX_FF", "YZ_FF"]:
+        sources = SLOT_GAME_MAP.get(ff_slot)
+        if sources:
+            # Extract region letter from source slot ID (first char)
+            _ff_source_regions[ff_slot] = (sources[0][0], sources[1][0])
 
     def ff_card_html(row, top_region):
         if row is None:
@@ -791,7 +849,7 @@ def champ_html(layout):
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
             top_id, bot_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
 
-        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_for_ff(mid, row, top_region)
         return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
                                actual_bot=ab_n, actual_bot_seed=ab_s, actual_bot_tid=ab_t,
@@ -823,7 +881,7 @@ def champ_html(layout):
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
             t_id, b_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
 
-        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
+        at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals_for_ncg(mid, row)
 
         card = game_card_parts(tn, ts, bn, bs, fp, sp, mid,
                                actual_top=at_n, actual_top_seed=at_s, actual_top_tid=at_t,
@@ -1007,7 +1065,7 @@ with tab_bracket:
     # Title bar (rendered as HTML for consistent styling)
     with _bcol_c:
         st.markdown(
-            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.05rem;'
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.25rem;'
             f'font-weight:700;color:#c97b00;text-align:center;padding-top:6px;">'
             f'{bracket_year} Bracket</div>',
             unsafe_allow_html=True,
