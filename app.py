@@ -361,22 +361,25 @@ h1 {
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 560px;
+    width: 600px;
     z-index: 2;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
 }
 .champ-inner {
     display: flex;
     flex-direction: row;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     width: 100%;
     padding: 0 4px;
 }
 .champ-ff-col  { flex: 1; min-width: 0; }
-.champ-ncg-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; }
+.champ-ncg-col {
+    flex: 1.25; min-width: 0;
+    display: flex; flex-direction: column; align-items: stretch;
+}
 .champ-game {
     background: #ffffff;
     border: 1px solid #c97b0055;
@@ -386,26 +389,31 @@ h1 {
     box-shadow: 0 0 18px rgba(201,123,0,0.09);
     position: relative;
 }
+/* extra bottom margin on the NCG game card to make room for
+   the red actual-winner labels that sit below the card */
+.champ-ncg-col .champ-game { margin-bottom: 6px; }
+
 .champion-box {
-    margin-top: 10px;
+    margin-top: 18px;
     background: linear-gradient(135deg, #fff8ec 0%, #fff3d8 100%);
     border: 2px solid #c97b00;
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     text-align: center;
     box-shadow: 0 2px 12px rgba(201,123,0,0.15);
-    position: relative;
+    width: 55%;
+    align-self: center;
 }
 .champion-box .champ-label {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 0.62rem;
+    font-size: 0.68rem;
     letter-spacing: 0.18em;
     color: #c97b00;
     margin-bottom: 2px;
 }
 .champion-box .champ-name {
     font-family: 'DM Sans', sans-serif;
-    font-size: 0.88rem;
+    font-size: 0.95rem;
     font-weight: 700;
     color: #333;
 }
@@ -418,11 +426,11 @@ h1 {
 }
 .actual-champ {
     font-family: 'DM Sans', sans-serif;
-    font-size: 0.72rem;
+    font-size: 0.76rem;
     font-weight: 700;
     color: #d32f2f;
     text-align: center;
-    padding-top: 4px;
+    padding-top: 5px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -743,7 +751,15 @@ def champ_html():
         card = card.replace('<div class="game">', '<div class="champ-game game">', 1)
         html += card
 
-        # ── Separate champion box below ──
+    html += '</div>'  # close champ-ncg-col
+
+    html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'
+    html += '</div>'  # close champ-inner (the row)
+
+    # ── Champion box below the row, centered in champ-col ──
+    if not champ_game.empty:
+        row  = champ_game.iloc[0]
+        mid  = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
         winner   = row["Selected"]
         win_seed = get_winner_seed(row)
 
@@ -775,10 +791,7 @@ def champ_html():
             act_seed_str = f"{int(actual_winner_seed)} " if actual_winner_seed is not None else ""
             html += f'<div class="actual-champ">🏆 {act_seed_str}{actual_winner}</div>'
 
-    html += '</div>'
-
-    html += f'<div class="champ-ff-col">{ff_card_html(ff_right, top_right_region)}</div>'
-    html += '</div></div>'
+    html += '</div>'  # close champ-col
     return html
 
 # ── Assemble ───────────────────────────────────────────────────────────────────
