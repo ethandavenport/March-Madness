@@ -53,6 +53,19 @@ else:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _tid(v):
+    """Normalise a TeamID to a clean string like '1181' (no '.0' suffix)."""
+    if v is None:
+        return None
+    if isinstance(v, float):
+        if pd.isna(v):
+            return None
+        return str(int(v))
+    s = str(v).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s
+
 def prob_color(p):
     if pd.isna(p):
         return "#aaa"
@@ -124,14 +137,14 @@ def games_for_ordered(region, round_name, slot_pos):
         if pa <= pb:
             top_name, top_seed = row["ATeamName"], int(row["Seed_A"])
             bot_name, bot_seed = row["BTeamName"], int(row["Seed_B"])
-            top_tid  = str(row["ATeamID"])
-            bot_tid  = str(row["BTeamID"])
+            top_tid  = _tid(row["ATeamID"])
+            bot_tid  = _tid(row["BTeamID"])
             sort_key = pa
         else:
             top_name, top_seed = row["BTeamName"], int(row["Seed_B"])
             bot_name, bot_seed = row["ATeamName"], int(row["Seed_A"])
-            top_tid  = str(row["BTeamID"])
-            bot_tid  = str(row["ATeamID"])
+            top_tid  = _tid(row["BTeamID"])
+            bot_tid  = _tid(row["ATeamID"])
             sort_key = pb
         result.append({
             "row": row,
@@ -427,23 +440,16 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
     def _state(tid):
         if not actual_tids:
             return "neutral"
-        return "correct" if str(tid) in actual_tids else "wrong"
+        return "correct" if _tid(tid) in actual_tids else "wrong"
 
     def _missing_actual(tid):
         """Return the actual team that replaced this predicted team."""
-        # The wrong predicted team should be replaced by whichever actual team
-        # is not accounted for by the other predicted team.
-        other_predicted = bot_tid if str(tid) == str(top_tid) else top_tid
-        # If the other predicted team IS one of the actual teams, the missing
-        # actual is the other one. If neither predicted team is in the actual
-        # game, show whichever actual team has the closer seed.
-        if actual_top_tid and str(other_predicted) == str(actual_top_tid):
+        other_predicted = bot_tid if _tid(tid) == _tid(top_tid) else top_tid
+        if actual_top_tid and _tid(other_predicted) == actual_top_tid:
             return actual_bot, actual_bot_seed
-        if actual_bot_tid and str(other_predicted) == str(actual_bot_tid):
+        if actual_bot_tid and _tid(other_predicted) == actual_bot_tid:
             return actual_top, actual_top_seed
-        # Neither predicted team is correct — show the actual team on same side
-        # (top predicted → show actual_top, bot predicted → show actual_bot)
-        if str(tid) == str(top_tid):
+        if _tid(tid) == _tid(top_tid):
             return actual_top, actual_top_seed
         return actual_bot, actual_bot_seed
 
@@ -497,10 +503,10 @@ def game_card(gd, tooltip_side="right"):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
         at_n = _clean(rc.get("ActualA"))
         at_s = _clean(rc.get("ActualASeed"))
-        at_t = _clean(rc.get("ActualATid"))
+        at_t = _tid(rc.get("ActualATid"))
         ab_n = _clean(rc.get("ActualB"))
         ab_s = _clean(rc.get("ActualBSeed"))
-        ab_t = _clean(rc.get("ActualBTid"))
+        ab_t = _tid(rc.get("ActualBTid"))
 
     return game_card_parts(
         gd["top_name"], gd["top_seed"], gd["bot_name"], gd["bot_seed"],
@@ -634,8 +640,8 @@ def champ_html():
         def _clean(v):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
         return (
-            _clean(rc.get("ActualA")),    _clean(rc.get("ActualASeed")), _clean(rc.get("ActualATid")),
-            _clean(rc.get("ActualB")),    _clean(rc.get("ActualBSeed")), _clean(rc.get("ActualBTid")),
+            _clean(rc.get("ActualA")),    _clean(rc.get("ActualASeed")), _tid(rc.get("ActualATid")),
+            _clean(rc.get("ActualB")),    _clean(rc.get("ActualBSeed")), _tid(rc.get("ActualBTid")),
         )
 
     def ff_card_html(row, top_region):
@@ -649,16 +655,16 @@ def champ_html():
         mid = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
         if ra == top_region:
             top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
-            top_id, bot_id = str(row["ATeamID"]), str(row["BTeamID"])
+            top_id, bot_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
         elif rb == top_region:
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
-            top_id, bot_id = str(row["BTeamID"]), str(row["ATeamID"])
+            top_id, bot_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
         elif sa <= sb:
             top_n, top_s, bot_n, bot_s = row["ATeamName"], sa, row["BTeamName"], sb
-            top_id, bot_id = str(row["ATeamID"]), str(row["BTeamID"])
+            top_id, bot_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
         else:
             top_n, top_s, bot_n, bot_s = row["BTeamName"], sb, row["ATeamName"], sa
-            top_id, bot_id = str(row["BTeamID"]), str(row["ATeamID"])
+            top_id, bot_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
 
         at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
         return game_card_parts(top_n, top_s, bot_n, bot_s, fp, sp, mid,
@@ -681,16 +687,16 @@ def champ_html():
         mid = str(row["MatchID"]) if "MatchID" in row and not pd.isna(row["MatchID"]) else None
         if ra in left_set:
             tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
-            t_id, b_id = str(row["ATeamID"]), str(row["BTeamID"])
+            t_id, b_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
         elif rb in left_set:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
-            t_id, b_id = str(row["BTeamID"]), str(row["ATeamID"])
+            t_id, b_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
         elif sa <= sb:
             tn, ts, bn, bs = row["ATeamName"], sa, row["BTeamName"], sb
-            t_id, b_id = str(row["ATeamID"]), str(row["BTeamID"])
+            t_id, b_id = _tid(row["ATeamID"]), _tid(row["BTeamID"])
         else:
             tn, ts, bn, bs = row["BTeamName"], sb, row["ATeamName"], sa
-            t_id, b_id = str(row["BTeamID"]), str(row["ATeamID"])
+            t_id, b_id = _tid(row["BTeamID"]), _tid(row["ATeamID"])
 
         at_n,at_s,at_t, ab_n,ab_s,ab_t = _get_actuals(mid)
 
