@@ -522,31 +522,44 @@ def game_card_parts(top_name, top_seed, bot_name, bot_seed, fp, sp,
             return "neutral"
         return "correct" if _tid(tid) in actual_tids else "wrong"
 
-    def _missing_actual(tid):
-        """Return the actual team that replaced this predicted team."""
-        other_predicted = bot_tid if _tid(tid) == _tid(top_tid) else top_tid
-        if actual_top_tid and _tid(other_predicted) == actual_top_tid:
-            return actual_bot, actual_bot_seed
-        if actual_bot_tid and _tid(other_predicted) == actual_bot_tid:
-            return actual_top, actual_top_seed
-        if _tid(tid) == _tid(top_tid):
-            return actual_top, actual_top_seed
-        return actual_bot, actual_bot_seed
-
     state_top = _state(top_tid)
     state_bot = _state(bot_tid)
 
+    # Determine which actual team to show for each wrong prediction.
+    # actual_top = upper-source-slot winner (bracket top position)
+    # actual_bot = lower-source-slot winner (bracket bot position)
+    # When only ONE predicted team is wrong, show the actual team that the
+    # other predicted team is NOT (i.e. the one that was displaced).
+    # When BOTH predicted teams are wrong, actual_top replaces the display-top
+    # and actual_bot replaces the display-bot (positional match).
     above_html = below_html = ""
-    if state_top == "wrong":
-        actual_name, actual_seed_val = _missing_actual(top_tid)
-        if actual_name:
-            seed_str = f"{int(actual_seed_val)} " if actual_seed_val is not None else ""
-            above_html = f'<div class="actual-winner above">{seed_str}{actual_name}</div>'
-    if state_bot == "wrong":
-        actual_name, actual_seed_val = _missing_actual(bot_tid)
-        if actual_name:
-            seed_str = f"{int(actual_seed_val)} " if actual_seed_val is not None else ""
-            below_html = f'<div class="actual-winner below">{seed_str}{actual_name}</div>'
+    if state_top == "wrong" and state_bot == "wrong":
+        # Both wrong: positional — actual_top above top, actual_bot below bot
+        if actual_top:
+            seed_str = f"{int(actual_top_seed)} " if actual_top_seed is not None else ""
+            above_html = f'<div class="actual-winner above">{seed_str}{actual_top}</div>'
+        if actual_bot:
+            seed_str = f"{int(actual_bot_seed)} " if actual_bot_seed is not None else ""
+            below_html = f'<div class="actual-winner below">{seed_str}{actual_bot}</div>'
+    else:
+        if state_top == "wrong":
+            # Top is wrong, bot is correct → show whichever actual team isn't the bot
+            if actual_top_tid and _tid(bot_tid) != actual_top_tid:
+                name, seed_val = actual_top, actual_top_seed
+            else:
+                name, seed_val = actual_bot, actual_bot_seed
+            if name:
+                seed_str = f"{int(seed_val)} " if seed_val is not None else ""
+                above_html = f'<div class="actual-winner above">{seed_str}{name}</div>'
+        if state_bot == "wrong":
+            # Bot is wrong, top is correct → show whichever actual team isn't the top
+            if actual_bot_tid and _tid(top_tid) != actual_bot_tid:
+                name, seed_val = actual_bot, actual_bot_seed
+            else:
+                name, seed_val = actual_top, actual_top_seed
+            if name:
+                seed_str = f"{int(seed_val)} " if seed_val is not None else ""
+                below_html = f'<div class="actual-winner below">{seed_str}{name}</div>'
 
     tooltip_html = ""
     if match_id and match_id in shap_cache:
@@ -581,6 +594,13 @@ def game_card(gd, tooltip_side="right"):
         rc = results_cache[match_id]
         def _clean(v):
             return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+
+        # ActualA = upper-source-slot winner (bracket top)
+        # ActualB = lower-source-slot winner (bracket bot)
+        # These are already in bracket-position order from fill_bracket.
+        # Pass them directly as actual_top / actual_bot — they always
+        # correspond to display top / bot regardless of A/B swap,
+        # because both orderings derive from the same bracket structure.
         at_n = _clean(rc.get("ActualA"))
         at_s = _clean(rc.get("ActualASeed"))
         at_t = _tid(rc.get("ActualATid"))
