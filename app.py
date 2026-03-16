@@ -1406,7 +1406,7 @@ The modeling dataset is constructed at the game level, with each row correspondi
 The raw tournament results are cleaned and reshaped into a game-level table with team IDs, seeds, scores, and rounds, but no team statistics attached yet.
 """, unsafe_allow_html=True)
 
-        st.image("https://raw.githubusercontent.com/ethandavenport/March-Madness/main/images/match_results.png",
+        st.image("https://raw.githubusercontent.com/ethandavenport/March-Madness/main/images/Match Results.png",
                  caption="Match Results", use_container_width=True)
 
         st.markdown("""
