@@ -100,7 +100,7 @@ Five complementary models are trained using the selected feature set:
     - An ensemble of logistic regression "experts," each trained on a random subset of features, with a logistic gating function that learns which experts to trust for a given matchup
     - Optuna tunes the key hyperparameters: `alpha` (L1 regularization applied during grouped feature selection before experts are created), `n_experts` (number of individual expert models), `n_features` (how many randomly selected features each expert sees), `C_expert` (inverse L2 regularization strength within each expert's logistic regression), and `C_meta` (inverse L2 regularization strength for the gating function that combines expert outputs)
 
-### Model Evaluation
+# Model Evaluation
 Because the dataset is **relatively small** (roughly a few hundred games across tournaments), a single train/test split can give noisy estimates of performance. To stabilize evaluation:
 - Each model is trained and evaluated across many random splits (100+ iterations) with stratification on the outcome variable
 - For each model, the mean and standard deviation of test log loss across iterations are reported, alongside training log loss
