@@ -1373,10 +1373,6 @@ with tab_about:
     _col_spacer_l, _col_about, _col_spacer_r = st.columns([1, 2, 1])
     with _col_about:
 
-        def _img_full(url):
-            """Full-width image."""
-            st.image(url, use_container_width=True)
-
         def _img_small(url):
             """2/3 width image, centered."""
             st.markdown(
@@ -1419,7 +1415,7 @@ The modeling dataset is constructed at the game level, with each row correspondi
 The raw tournament results are cleaned and reshaped into a game-level table with team IDs, seeds, scores, and rounds, but no team statistics attached yet.
 """, unsafe_allow_html=True)
 
-        _img_full("https://github.com/user-attachments/assets/e45bf5b8-3e5a-4717-b70a-abd60b71be31")
+        _img_small("https://github.com/user-attachments/assets/e45bf5b8-3e5a-4717-b70a-abd60b71be31")
 
         st.markdown("""
 ### Merging External Team Features
@@ -1434,7 +1430,7 @@ Examples of merged features:
 The external sources are stacked and standardized into a unified team-season table so that any team in any year has a full set of candidate metrics.
 """, unsafe_allow_html=True)
 
-        _img_full("https://github.com/user-attachments/assets/1c1809e0-b03a-42fb-94c6-c6d6ad12ad9e")
+        _img_small("https://github.com/user-attachments/assets/1c1809e0-b03a-42fb-94c6-c6d6ad12ad9e")
 
         st.markdown("""
 Because sources cover different year ranges, each file is filtered to the overlapping seasons and then concatenated. The team-season table is left-joined onto the game-level results using year and team ID, attaching the appropriate stats to each side of every matchup.
@@ -1446,7 +1442,7 @@ Because sources cover different year ranges, each file is filtered to the overla
 The final merged DataFrame includes 100+ columns per game, with consistent A/B feature pairs that maintain symmetry between teams. The following represents a conceptual mapping of the final training data set, where each row is a single game with aligned features for both teams, ready to feed into the machine learning pipeline.
 """, unsafe_allow_html=True)
 
-        _img_full("https://github.com/user-attachments/assets/fca30f66-cb61-4656-be35-5b39afe43ffa")
+        _img_small("https://github.com/user-attachments/assets/fca30f66-cb61-4656-be35-5b39afe43ffa")
 
         st.markdown("""
 ---
@@ -1558,7 +1554,7 @@ Take the North Carolina vs. Ole Miss example above. The model gives UNC a **62.8
 
 ### Prediction Storytelling
 If you listen to college basketball analysts break down tournament matchups, their reasoning tends to be very specific and narrative-driven:
-- *"The underdog will want to push the pace, force turnovers, and get transition buckets"*
+- *"The underdog will want to push the pace, force turnovers, and get transition buckets. That will make the favorite uncomfortable"*
 - *"I don't think they have the size and physicality to match up in the paint"*
 
 These are stories built on particular box score traits. The SHAP plots tell a different story:
