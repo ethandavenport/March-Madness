@@ -1,7 +1,7 @@
 # Project Overview
 This repository contains code to estimate win probabilities for NCAA men's tournament games from 2017–2025 and to turn those probabilities into a bracket strategy for upcoming tournaments. The workflow covers data collection, merging and cleaning, feature selection with grouped penalties, model training and evaluation, and bracket construction rules that balance model predictions with historical seeding outcomes.
 
-A visual telling of this project can be found at the following Streamlit app: [march-madness.streamlit.app](march-madness.streamlit.app)
+A visual telling of this project can be found at the following [Streamlit app](https://march-madness.streamlit.app/)
 
 This project exists in my relentless pursuit of reaching my high of the 2021 Tournament again. That year, I took home first place in my Dad's work bracket pool, with 150+ entries. It was glorious. I return to the bracket-making starting blocks, this time armed with the power of data and machine learning.
 
