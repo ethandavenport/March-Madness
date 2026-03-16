@@ -1373,6 +1373,19 @@ with tab_about:
     _col_spacer_l, _col_about, _col_spacer_r = st.columns([1, 2, 1])
     with _col_about:
 
+        def _img_full(url):
+            """Full-width image."""
+            st.image(url, use_container_width=True)
+
+        def _img_small(url):
+            """2/3 width image, centered."""
+            st.markdown(
+                f'<div style="display:flex;justify-content:center;">'
+                f'<img src="{url}" style="width:67%;height:auto;"/>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
         st.markdown("""
 ## Project Overview
 This repository contains code to estimate win probabilities for NCAA men's tournament games from 2017–2025 and to turn those probabilities into a bracket strategy for upcoming tournaments. The workflow covers data collection, merging and cleaning, feature selection with grouped penalties, model training and evaluation, and bracket construction rules that balance model predictions with historical seeding outcomes.
@@ -1406,8 +1419,7 @@ The modeling dataset is constructed at the game level, with each row correspondi
 The raw tournament results are cleaned and reshaped into a game-level table with team IDs, seeds, scores, and rounds, but no team statistics attached yet.
 """, unsafe_allow_html=True)
 
-        st.image("https://raw.githubusercontent.com/ethandavenport/March-Madness/main/images/Match Results.png",
-                 caption="Match Results", use_container_width=True)
+        _img_full("https://github.com/user-attachments/assets/e45bf5b8-3e5a-4717-b70a-abd60b71be31")
 
         st.markdown("""
 ### Merging External Team Features
@@ -1422,22 +1434,19 @@ Examples of merged features:
 The external sources are stacked and standardized into a unified team-season table so that any team in any year has a full set of candidate metrics.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/1c1809e0-b03a-42fb-94c6-c6d6ad12ad9e",
-                 caption="Team Data", use_container_width=True)
+        _img_full("https://github.com/user-attachments/assets/1c1809e0-b03a-42fb-94c6-c6d6ad12ad9e")
 
         st.markdown("""
 Because sources cover different year ranges, each file is filtered to the overlapping seasons and then concatenated. The team-season table is left-joined onto the game-level results using year and team ID, attaching the appropriate stats to each side of every matchup.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/c0fcf85e-cb8f-4159-80c7-d1afb7835c01",
-                 caption="Merging Data", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/c0fcf85e-cb8f-4159-80c7-d1afb7835c01")
 
         st.markdown("""
 The final merged DataFrame includes 100+ columns per game, with consistent A/B feature pairs that maintain symmetry between teams. The following represents a conceptual mapping of the final training data set, where each row is a single game with aligned features for both teams, ready to feed into the machine learning pipeline.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/fca30f66-cb61-4656-be35-5b39afe43ffa",
-                 caption="Merged Data", use_container_width=True)
+        _img_full("https://github.com/user-attachments/assets/fca30f66-cb61-4656-be35-5b39afe43ffa")
 
         st.markdown("""
 ---
@@ -1454,8 +1463,7 @@ Feature selection is performed using a **group-lasso–style approach**:
 The alpha vs. cross‑validated log loss and feature count plot is used to choose the regularization strength at the point where log loss is minimized, balancing predictive performance with model sparsity.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e",
-                 caption="LASSO Alpha Selection", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/79f7e6f1-5c61-417f-b30b-b1faee9c219e")
 
         st.markdown("""
 ---
@@ -1478,15 +1486,13 @@ Because the dataset is **relatively small** (roughly a few hundred games across 
 The model performance plot compares out-of-sample log loss across each model type, as well as the baseline (defined as the predicted probability for every game being equal to the underlying prevalence in the data). The Mixture of Experts model is selected for this task since it achieves competitive log loss while maintaining strong generalization across splits.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/634c745c-a553-4e7d-bd74-26408e633c3c",
-                 caption="Test Log Loss", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/634c745c-a553-4e7d-bd74-26408e633c3c")
 
         st.markdown("""
 The calibration plot compares predicted win probabilities to actual outcomes for all five models, illustrating how well each model's probability estimates line up with observed frequencies across the probability range. No particular model shows any significant deviation from the baseline, indicating that all models produce reasonably well-calibrated probabilities.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/aa1e5482-bebb-4e10-bcc4-186f41d27b7b",
-                 caption="Calibration Plot", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/aa1e5482-bebb-4e10-bcc4-186f41d27b7b")
 
         st.markdown("""
 ---
@@ -1506,8 +1512,7 @@ Before trusting ML to drive bracket picks, the project establishes a **seeding-o
 Historical upset rates by seed matchup provide a reference for how aggressive ML-driven upsets should be.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974",
-                 caption="Seed Probabilities", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/8d0dd33f-2109-47d1-aa1f-5130e1da1974")
 
         st.markdown("""
 ---
@@ -1542,8 +1547,7 @@ To correct for this, an **additional conservative factor** of `std(lift threshol
 To make the model's predictions interpretable at the matchup level, **SHAP (SHapley Additive exPlanations)** values are computed for every game. In the Bracket tab, hovering over any matchup surfaces a SHAP waterfall plot that breaks down exactly **why** the Mixture of Experts model arrived at a given win probability.
 """, unsafe_allow_html=True)
 
-        st.image("https://github.com/user-attachments/assets/2ad785e7-2c27-476b-bfda-93c9d12bc45d",
-                 caption="SHAP Example: North Carolina vs Mississippi", use_container_width=True)
+        _img_small("https://github.com/user-attachments/assets/2ad785e7-2c27-476b-bfda-93c9d12bc45d")
 
         st.markdown("""
 Take the North Carolina vs. Ole Miss example above. The model gives UNC a **62.8%** chance to win:
