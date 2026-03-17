@@ -1231,20 +1231,23 @@ with tab_bracket:
                 st.session_state[skey] = team
             return _cb
 
-        # Render toggle rows — each play-in game is its own row:
-        # [spacer | label | button A | button B | spacer]
+        # Render toggles in a single centered row: [spacer | label btnA btnB | label btnA btnB | spacer]
+        n_games = len(_playin_meta_bracket)
+        # Each game needs: label + 2 buttons = 3 units. Add spacers on sides.
+        col_spec = [4] + [0.7, 1, 1] * n_games + [4]
+        _tcols = st.columns(col_spec, gap="small")
         for idx, game in enumerate(_playin_meta_bracket):
             skey = f"bracket_playin_{bracket_year}_{idx}"
             current = st.session_state[skey]
-            _s1, _lbl, _ba, _bb, _s2 = st.columns([3, 1, 1, 1, 3])
-            with _lbl:
+            base = 1 + idx * 3  # offset into _tcols
+            with _tcols[base]:
                 st.markdown(
                     f'<div style="font-family:\'DM Sans\',sans-serif;font-size:0.60rem;'
                     f'font-weight:600;color:#888;letter-spacing:0.05em;text-transform:uppercase;'
-                    f'text-align:right;padding-top:4px;">{game["SeedNum"]}-seed</div>',
+                    f'text-align:right;padding-top:4px;white-space:nowrap;">{game["SeedNum"]}-seed:</div>',
                     unsafe_allow_html=True,
                 )
-            with _ba:
+            with _tcols[base + 1]:
                 st.button(
                     game["TeamA"],
                     key=f"btn_{skey}_a",
@@ -1252,7 +1255,7 @@ with tab_bracket:
                     type="primary" if current == game["TeamA"] else "secondary",
                     use_container_width=True,
                 )
-            with _bb:
+            with _tcols[base + 2]:
                 st.button(
                     game["TeamB"],
                     key=f"btn_{skey}_b",
