@@ -519,19 +519,34 @@ h1 {
 /* ── Mobile-friendly adjustments ── */
 @media (max-width: 768px) {
     .block-container { padding: 1rem 0.15rem 2rem 0.15rem; }
-    .bracket-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Bracket: enforce minimum width so cards are readable, scroll horizontally */
+    .bracket-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        min-width: 100%;
+    }
+    .bracket-wrapper > .side-half {
+        min-width: 480px;
+    }
     .champ-col { width: 400px; }
-    .round-header-cell { font-size: 0.65rem; }
-    .game .team { font-size: 0.65rem; padding: 3px 5px; gap: 3px; }
-    .game .seed { font-size: 0.52rem; }
-    .game .pct { font-size: 0.52rem; min-width: 22px; }
-    .game .prob-header { font-size: 0.45rem; }
+
+    /* Game cards: enforce minimum width */
+    .round-col { min-width: 115px; }
+    .game { min-width: 105px; }
+
+    /* Round headers row scrolls with bracket */
+    .round-headers-row {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .round-headers-left, .round-headers-right { min-width: 480px; }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Viewport meta for mobile scaling
-st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">', unsafe_allow_html=True)
+# Viewport meta — allow pinch-to-zoom on mobile
+st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, user-scalable=yes">', unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown("<h1>MARCH MADNESS</h1>", unsafe_allow_html=True)
@@ -1461,6 +1476,12 @@ with tab_probs:
   col.col-team  {{ width: 160px; }}
   col.col-seed  {{ width: 52px; }}
   col.col-round {{ width: 108px; }}
+
+  /* Mobile: horizontal scroll for the table */
+  @media (max-width: 768px) {{
+    #outer {{ overflow-x: auto; -webkit-overflow-scrolling: touch; display: block; }}
+    #wrap  {{ min-width: 700px; }}
+  }}
 </style>
 </head>
 <body>
