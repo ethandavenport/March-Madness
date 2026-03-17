@@ -254,11 +254,11 @@ html, body, [data-testid="stAppViewContainer"] { background: #f5f3ef; color: #1a
 .block-container { padding: 2rem 0.25rem 4rem 0.25rem; max-width: 100%; }
 
 h1 {
-    font-family: 'DM Sans', sans-serif;
-    font-size: clamp(2.5rem, 6vw, 5rem);
-    font-weight: 700;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: clamp(2.5rem, 6vw, 5rem) !important;
+    font-weight: 700 !important;
     letter-spacing: 0.08em;
-    color: #c97b00;
+    color: #c97b00 !important;
     margin: 0 0 0.1em 0;
     line-height: 1;
     text-align: center;
@@ -1828,7 +1828,7 @@ In the Final Four and title game, the bracket simply takes the team with the hig
 ### Historical Rate Adjustment
 After implementing the initial bracket strategy, the results were **a bit too upset-happy,** especially in later rounds. The root cause was that the lift thresholds are calibrated against real historical games, where the teams that advance to later rounds include a fair amount of randomness. But in the hypothetical bracket, the **"analytically strong underdogs" from earlier rounds are the ones advancing**, which means later-round matchups are more likely to feature teams that are genuinely worthy of another upset pick. This creates a compounding effect where the bracket keeps picking upsets deeper into the tournament at a higher rate than history would support.
 
-To correct for this, an **additional conservative factor** of `std(lift thresholds) / 2` is added to the lift thresholds for Rounds 2–4 (Round of 32 through Elite Eight). This nudges the bar for calling an upset slightly higher in later rounds, dampening the compounding effect.
+To correct for this, an **additional conservative factor** of <sup>2</sup>&frasl;<sub>3</sub> · `std(lift thresholds)` is added to the lift thresholds for Rounds 2–4 (Round of 32 through Elite Eight). This nudges the bar for calling an upset slightly higher in later rounds, dampening the compounding effect.
 
 ---
 
