@@ -8,19 +8,37 @@ from fill_bracket import SLOT_GAME_MAP
 st.set_page_config(page_title="March Madness", layout="wide")
 
 # ── Discover available bracket files (bracket_YYYY.csv) ──────────────────────
-_bracket_files = {}
+_bracket_files = {}       # year -> filepath  (single bracket)
+_bracket_multi_files = {} # year -> [filepath, ...]  (multiple play-in variants)
+
 for f in sorted(glob.glob("bracket_*.csv")):
     name = os.path.basename(f)
-    # Match bracket_2017.csv .. bracket_2025.csv, skip bracket_all.csv etc.
+    # Match bracket_2026_0.csv style (multi-bracket for play-in variants)
+    if name.count("_") == 2:
+        parts = name[8:-4].split("_")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            yr = int(parts[0])
+            _bracket_multi_files.setdefault(yr, []).append(f)
+            continue
+    # Match bracket_2017.csv style (single bracket)
     if name.startswith("bracket_") and name[8:-4].isdigit():
         yr = int(name[8:-4])
         _bracket_files[yr] = f
 
-if not _bracket_files:
+# Sort multi-bracket file lists by variant index
+for yr in _bracket_multi_files:
+    _bracket_multi_files[yr] = sorted(_bracket_multi_files[yr])
+
+all_bracket_years = sorted(
+    set(list(_bracket_files.keys()) + list(_bracket_multi_files.keys())),
+    reverse=True,
+)
+
+if not all_bracket_years:
     st.error("No bracket files found (expected bracket_YYYY.csv).")
     st.stop()
 
-_bracket_years = sorted(_bracket_files.keys(), reverse=True)
+_bracket_years = all_bracket_years
 
 ROUND_ORDER = [
     "Round 1",
@@ -64,10 +82,18 @@ def _get_layout(year):
 
 
 @st.cache_data
-def _load_bracket_year(year):
-    """Load bracket_YYYY.csv for a single year and build caches.
+def _load_bracket_year(year, variant_idx=0):
+    """Load bracket for a single year and build caches.
+    For multi-bracket years, variant_idx selects which play-in variant.
     Returns (bracket_df, shap_cache, results_cache)."""
-    path = _bracket_files[year]
+    if year in _bracket_multi_files:
+        files = _bracket_multi_files[year]
+        path = files[min(variant_idx, len(files) - 1)]
+    elif year in _bracket_files:
+        path = _bracket_files[year]
+    else:
+        return pd.DataFrame(), {}, {}
+
     df = pd.read_csv(path)
     df["Round"] = pd.Categorical(df["Round"], categories=ROUND_ORDER, ordered=True)
     df = df.sort_values("Round")
@@ -101,6 +127,79 @@ def _load_bracket_year(year):
         rc = {}
 
     return df, sc, rc
+
+
+@st.cache_data
+def _detect_playin_choices(year):
+    """For multi-bracket years, detect which teams differ across variants.
+    Returns list of (team_a_name, team_b_name, region, seed) tuples for
+    the non-16-seed play-in games, or empty list if not applicable."""
+    if year not in _bracket_multi_files or len(_bracket_multi_files[year]) < 2:
+        return []
+
+    files = _bracket_multi_files[year]
+    # Load R1 from each variant
+    variants_r1 = []
+    for f in files:
+        bdf = pd.read_csv(f)
+        r1 = bdf[bdf["Round"] == "Round 1"][["ATeamName", "BTeamName", "Seed_A", "Seed_B",
+                                                "Region_A"]].copy()
+        r1["teams"] = r1.apply(lambda r: frozenset([r["ATeamName"], r["BTeamName"]]), axis=1)
+        variants_r1.append(r1)
+
+    # Find R1 matchups that differ across variants
+    base_teams = set(variants_r1[0]["teams"])
+    playin_choices = []
+    seen_slots = set()
+
+    for v_idx in range(1, len(variants_r1)):
+        v_teams = set(variants_r1[v_idx]["teams"])
+        # Games in variant 0 but not in this variant (the swapped matchup)
+        diff_base = base_teams - v_teams
+        diff_v = v_teams - base_teams
+
+        for matchup_set in diff_base:
+            for other_set in diff_v:
+                # Find the two teams that swapped
+                swapped = matchup_set.symmetric_difference(other_set)
+                if len(swapped) == 2:
+                    t1, t2 = sorted(swapped)
+                    slot_key = (t1, t2)
+                    if slot_key not in seen_slots:
+                        seen_slots.add(slot_key)
+                        # Find region and seed from base variant
+                        for _, row in variants_r1[0].iterrows():
+                            if t1 in [row["ATeamName"], row["BTeamName"]] or \
+                               t2 in [row["ATeamName"], row["BTeamName"]]:
+                                region = row["Region_A"]
+                                seed = int(min(row["Seed_A"], row["Seed_B"]))
+                                if seed != 16:  # Only show non-16-seed play-ins
+                                    playin_choices.append((t1, t2, region, seed))
+                                break
+
+    return playin_choices
+
+
+def _find_variant_idx(year, chosen_winners):
+    """Given a dict of {(team_a, team_b): winner_name}, find which variant
+    index matches those play-in selections."""
+    if year not in _bracket_multi_files:
+        return 0
+
+    files = _bracket_multi_files[year]
+    for idx, f in enumerate(files):
+        bdf = pd.read_csv(f)
+        r1 = bdf[bdf["Round"] == "Round 1"]
+        r1_teams = set()
+        for _, row in r1.iterrows():
+            r1_teams.add(row["ATeamName"])
+            r1_teams.add(row["BTeamName"])
+
+        # Check if all chosen winners appear in this variant's R1
+        if all(w in r1_teams for w in chosen_winners.values()):
+            return idx
+
+    return 0  # fallback
 
 
 # Initialise with the most recent year (will be overridden in bracket tab)
@@ -1085,7 +1184,6 @@ tab_bracket, tab_probs, tab_about = st.tabs(["🏅  Bracket", "▦  Round Probab
 
 with tab_bracket:
     # ── Year selector ──
-    # Use Streamlit columns to place title + dropdown in a single row
     _bcol_l, _bcol_c, _bcol_r = st.columns([1, 6, 1])
     with _bcol_r:
         bracket_year = st.selectbox(
@@ -1093,8 +1191,33 @@ with tab_bracket:
             index=0, key="bracket_year", label_visibility="collapsed"
         )
 
-    # Reload bracket data for selected year
-    bracket, shap_cache, results_cache = _load_bracket_year(bracket_year)
+    # ── Play-in selectors (only for multi-bracket years like 2026) ──
+    _variant_idx = 0
+    playin_choices = _detect_playin_choices(bracket_year)
+    chosen_winners = {}
+
+    if playin_choices:
+        st.markdown(
+            '<div style="font-family:\'DM Sans\',sans-serif;font-size:0.82rem;'
+            'font-weight:600;color:#888;text-align:center;letter-spacing:0.08em;'
+            'text-transform:uppercase;margin-bottom:6px;">Play-In Winners</div>',
+            unsafe_allow_html=True,
+        )
+        pi_cols = st.columns(len(playin_choices))
+        for i, (t1, t2, region, seed) in enumerate(playin_choices):
+            with pi_cols[i]:
+                winner = st.radio(
+                    f"{seed}-seed ({region})",
+                    [t1, t2],
+                    horizontal=True,
+                    key=f"playin_{bracket_year}_{i}",
+                )
+                chosen_winners[(t1, t2)] = winner
+
+        _variant_idx = _find_variant_idx(bracket_year, chosen_winners)
+
+    # Reload bracket data for selected year + variant
+    bracket, shap_cache, results_cache = _load_bracket_year(bracket_year, _variant_idx)
 
     # Region layout for this year: (TL, BL, TR, BR)
     _layout = _get_layout(bracket_year)
@@ -1143,33 +1266,16 @@ with tab_probs:
     # Try adv_all.csv first (combined), fall back to adv_2025.csv
     if os.path.exists("adv_all.csv"):
         adv_all = pd.read_csv("adv_all.csv")
-        # Handle old CSVs that saved the index as a column
-        if "Unnamed: 0" in adv_all.columns:
-            if "TeamName" not in adv_all.columns:
-                adv_all = adv_all.rename(columns={"Unnamed: 0": "TeamName"})
-            else:
-                adv_all = adv_all.drop(columns=["Unnamed: 0"])
         adv_all["Season"] = adv_all["Season"].astype(int)
-        # Ensure PlayinKey column exists (empty string for legacy files)
-        if "PlayinKey" not in adv_all.columns:
-            adv_all["PlayinKey"] = ""
-        adv_all["PlayinKey"] = adv_all["PlayinKey"].fillna("")
         available_years = sorted(adv_all["Season"].unique(), reverse=True)
     elif os.path.exists("adv_2025.csv"):
         adv_all = pd.read_csv("adv_2025.csv")
         adv_all["Season"] = 2025
-        adv_all["PlayinKey"] = ""
         available_years = [2025]
     else:
         st.error("Could not find adv_all.csv or adv_2025.csv.")
         adv_all = None
         available_years = []
-
-    # Load play-in metadata (tells us which games have unresolved play-in choices)
-    playin_meta = None
-    if os.path.exists("playin_meta.csv"):
-        playin_meta = pd.read_csv("playin_meta.csv")
-        playin_meta["Season"] = playin_meta["Season"].astype(int)
 
     if adv_all is not None:
         round_cols   = ["Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship", "Champion"]
@@ -1181,43 +1287,23 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        # Build per-year data, keyed by (year, playin_key_str)
-        # For years with no play-in choices, there's one entry with key ""
-        # For years with choices, there's one entry per combo
-        all_years_data = {}        # { year: { playin_key_str: [rows] } }
-        playin_meta_js = {}        # { year: [ {region, seed, teamA, teamB}, ... ] }
-
+        # Serialize ALL years' data into JS — year switching handled entirely in JS,
+        # no Streamlit rerun needed, no page reload, tab state preserved.
+        all_years_data = {}
         for yr in available_years:
-            yr_data = adv_all[adv_all["Season"] == yr]
-            keys_in_year = yr_data["PlayinKey"].unique().tolist()
+            adv_yr = adv_all[adv_all["Season"] == yr][display_cols].copy()
+            adv_yr = adv_yr.rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
+            adv_yr = adv_yr.astype(object).where(adv_yr.notna(), None)
+            all_years_data[int(yr)] = adv_yr.to_dict(orient="records")
 
-            year_dict = {}
-            for pk in keys_in_year:
-                subset = yr_data[yr_data["PlayinKey"] == pk][display_cols].copy()
-                subset = subset.rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
-                subset = subset.astype(object).where(subset.notna(), None)
-                year_dict[pk] = subset.to_dict(orient="records")
-            all_years_data[int(yr)] = year_dict
+        all_data_json = json.dumps(all_years_data)
+        cols_json     = json.dumps(all_cols)
+        labels_json   = json.dumps(col_labels)
+        years_json    = json.dumps([int(y) for y in available_years])
+        init_year_json = json.dumps(int(available_years[0]))
 
-            # Play-in metadata for this year
-            if playin_meta is not None and not playin_meta.empty:
-                pm_yr = playin_meta[playin_meta["Season"] == yr]
-                if not pm_yr.empty:
-                    playin_meta_js[int(yr)] = pm_yr[["Region", "SeedNum", "TeamA", "TeamB"]].to_dict(orient="records")
-
-        all_data_json    = json.dumps(all_years_data)
-        playin_meta_json = json.dumps(playin_meta_js)
-        cols_json        = json.dumps(all_cols)
-        labels_json      = json.dumps(col_labels)
-        years_json       = json.dumps([int(y) for y in available_years])
-        init_year_json   = json.dumps(int(available_years[0]))
-
-        n_rows = max(
-            len(rows)
-            for year_dict in all_years_data.values()
-            for rows in year_dict.values()
-        )
-        est_height = n_rows * 33 + 160  # extra room for play-in selectors
+        n_rows     = max(len(v) for v in all_years_data.values())
+        est_height = n_rows * 33 + 120
 
         table_component = f"""
 <!DOCTYPE html>
@@ -1247,34 +1333,6 @@ with tab_probs:
   }}
   #year-select:hover {{ border-color: #c97b00; }}
   #year-select:focus {{ border-color: #c97b00; box-shadow: 0 0 0 2px #c97b0022; }}
-
-  /* ── Play-in selectors ── */
-  #playin-bar {{
-    display: none; justify-content: center; margin-bottom: 10px;
-  }}
-  #playin-bar.visible {{ display: flex; }}
-  #playin-inner {{
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    justify-content: center;
-  }}
-  .playin-group {{
-    display: flex; align-items: center; gap: 6px;
-    font-size: 0.78rem; color: #555;
-  }}
-  .playin-label {{
-    font-weight: 600; color: #888; font-size: 0.68rem;
-    letter-spacing: 0.05em; text-transform: uppercase;
-  }}
-  .playin-btn {{
-    padding: 4px 10px; border: 1px solid #ddd9d2; border-radius: 5px;
-    background: #faf8f4; font-family: 'DM Sans', sans-serif;
-    font-size: 0.78rem; font-weight: 500; color: #555;
-    cursor: pointer; transition: all 0.15s;
-  }}
-  .playin-btn:hover {{ border-color: #c97b00; color: #c97b00; }}
-  .playin-btn.active {{
-    background: #c97b00; color: #fff; border-color: #c97b00; font-weight: 700;
-  }}
 
   /* ── Table ── */
   #outer {{ display: flex; justify-content: center; }}
@@ -1312,10 +1370,6 @@ with tab_probs:
   </div>
 </div>
 
-<div id="playin-bar">
-  <div id="playin-inner"></div>
-</div>
-
 <div id="outer"><div id="wrap"><table id="tbl">
   <colgroup id="colgroup"></colgroup>
   <thead id="thead"></thead>
@@ -1323,46 +1377,16 @@ with tab_probs:
 </table></div></div>
 
 <script>
-// ALL_DATA[year] = {{ playin_key_str: [rows], ... }}
-// For years with no play-in choices, the only key is ""
-const ALL_DATA    = {all_data_json};
-const PLAYIN_META = {playin_meta_json};
-const ALL_COLS    = {cols_json};
-const LABELS      = {labels_json};
-const YEARS       = {years_json};
-const TEXT_COLS   = new Set(["Team", "Seed"]);
+const ALL_DATA  = {all_data_json};
+const ALL_COLS  = {cols_json};
+const LABELS    = {labels_json};
+const YEARS     = {years_json};
+const TEXT_COLS = new Set(["Team", "Seed"]);
 
-let curYear    = {init_year_json};
-let sortCol    = "Final Four";
-let sortAsc    = false;
-
-// Current play-in selections: {{ game_index: chosen_team_name }}
-let playinChoices = {{}};
-
-// Get the currently active playin key string from choices
-function getActiveKey() {{
-  const yearData = ALL_DATA[curYear];
-  const keys = Object.keys(yearData);
-  if (keys.length <= 1) return keys[0] || "";
-
-  // Build the key from current choices
-  const meta = PLAYIN_META[curYear] || [];
-  if (meta.length === 0) return keys[0] || "";
-
-  const chosen = meta.map((g, i) => playinChoices[i] || g.TeamA);
-  const keyStr = JSON.stringify(chosen);
-
-  // Find matching key
-  if (yearData[keyStr] !== undefined) return keyStr;
-
-  // Fallback: first key
-  return keys[0];
-}}
-
-function getActiveRows() {{
-  const key = getActiveKey();
-  return ALL_DATA[curYear][key] || [];
-}}
+let curYear = {init_year_json};
+let rows    = ALL_DATA[curYear];
+let sortCol = "Final Four";
+let sortAsc = false;
 
 // Populate year dropdown
 const sel = document.getElementById("year-select");
@@ -1374,55 +1398,13 @@ YEARS.forEach(y => {{
   sel.appendChild(opt);
 }});
 
+// Year change: just swap data and re-render, no reload
 sel.addEventListener("change", () => {{
   curYear = parseInt(sel.value);
-  playinChoices = {{}};
+  rows    = ALL_DATA[curYear];
   document.getElementById("title").textContent = curYear + " Tournament";
-  renderPlayinBar();
   render();
 }});
-
-function renderPlayinBar() {{
-  const bar   = document.getElementById("playin-bar");
-  const inner = document.getElementById("playin-inner");
-  const meta  = PLAYIN_META[curYear];
-  const keys  = Object.keys(ALL_DATA[curYear]);
-
-  if (!meta || meta.length === 0 || keys.length <= 1) {{
-    bar.classList.remove("visible");
-    inner.innerHTML = "";
-    return;
-  }}
-
-  bar.classList.add("visible");
-  inner.innerHTML = "";
-
-  meta.forEach((game, idx) => {{
-    const grp = document.createElement("div");
-    grp.className = "playin-group";
-
-    const label = document.createElement("span");
-    label.className = "playin-label";
-    label.textContent = game.SeedNum + "-seed:";
-    grp.appendChild(label);
-
-    [game.TeamA, game.TeamB].forEach(team => {{
-      const btn = document.createElement("button");
-      btn.className = "playin-btn";
-      btn.textContent = team;
-      const chosen = playinChoices[idx] || game.TeamA;
-      if (chosen === team) btn.classList.add("active");
-      btn.addEventListener("click", () => {{
-        playinChoices[idx] = team;
-        renderPlayinBar();
-        render();
-      }});
-      grp.appendChild(btn);
-    }});
-
-    inner.appendChild(grp);
-  }});
-}}
 
 function pctStyle(v) {{
   if (v === null || v === undefined || isNaN(v)) return "";
@@ -1439,8 +1421,6 @@ function fmtPct(v) {{
 }}
 
 function render() {{
-  const rows = getActiveRows();
-
   const colgroup = document.getElementById("colgroup");
   colgroup.innerHTML = "";
   ALL_COLS.forEach(col => {{
@@ -1506,7 +1486,6 @@ function render() {{
   }});
 }}
 
-renderPlayinBar();
 render();
 </script>
 </body>
@@ -1577,12 +1556,14 @@ The external sources are stacked and standardized into a unified team-season tab
         _img_small("https://github.com/user-attachments/assets/1c1809e0-b03a-42fb-94c6-c6d6ad12ad9e")
 
         st.markdown("""
+
 Because sources cover different year ranges, each file is filtered to the overlapping seasons and then concatenated. The team-season table is left-joined onto the game-level results using year and team ID, attaching the appropriate stats to each side of every matchup.
 """, unsafe_allow_html=True)
 
         _img_small("https://github.com/user-attachments/assets/c0fcf85e-cb8f-4159-80c7-d1afb7835c01")
 
         st.markdown("""
+
 The final merged DataFrame includes 100+ columns per game, with consistent A/B feature pairs that maintain symmetry between teams. The following represents a conceptual mapping of the final training data set, where each row is a single game with aligned features for both teams, ready to feed into the machine learning pipeline.
 """, unsafe_allow_html=True)
 
@@ -1612,11 +1593,20 @@ The alpha vs. cross‑validated log loss and feature count plot is used to choos
 
 Five complementary models are trained using the selected feature set:
 
-1. **LASSO Logistic Regression** — Binary logistic regression with L1 penalty to encourage sparsity with the grouped feature selection
-2. **Elastic Net Logistic Regression** — Logistic regression with elastic net penalty (L1 + L2). Cross-validated grid search over *C* and L1-ratio.
-3. **Gradient Boosting Classifier** — Tree-based model. Optuna optimizes `n_estimators`, `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample`.
-4. **Neural Network** — Small fully connected network (TensorFlow/Keras). Optuna tunes neurons per layer, learning rate, L2 regularization, and batch size.
-5. **Mixture of Experts (MoE)** — An ensemble of logistic regression "experts," each trained on a random subset of features, with a logistic gating function that learns which experts to trust for a given matchup. Optuna tunes `alpha`, `n_experts`, `n_features`, `C_expert`, and `C_meta`.
+1. **LASSO Logistic Regression**
+   - Binary logistic regression with L1 penalty to encourage sparsity with the grouped feature selection
+2. **Elastic Net Logistic Regression**
+   - Logistic regression with elastic net penalty (convex combination of L1 and L2) implemented via saga solver
+   - Cross-validated grid search over values of inverse-regularization strength *C* and L1-ratio, with a diagnostic plot of validation log loss to select hyperparameters
+3. **Gradient Boosting Classifier**
+   - Tree-based model fit on the selected features
+   - Optuna optimizes `n_estimators`, `learning_rate`, `max_depth`, `min_samples_leaf`, and `subsample` using log loss on held-out validation sets
+4. **Neural Network**
+   - Small fully connected network built with TensorFlow/Keras
+   - Optuna tunes the `number of neurons per layer`, `learning rate`, `L2 regularization`, and `batch size`, using early stopping on validation loss
+5. **Mixture of Experts (MoE)**
+   - An ensemble of logistic regression "experts," each trained on a random subset of features, with a logistic gating function that learns which experts to trust for a given matchup
+   - Optuna tunes the key hyperparameters: `alpha` (L1 regularization applied during grouped feature selection before experts are created), `n_experts` (number of individual expert models), `n_features` (how many randomly selected features each expert sees), `C_expert` (inverse L2 regularization strength within each expert's logistic regression), and `C_meta` (inverse L2 regularization strength for the gating function that combines expert outputs)
 
 ---
 
@@ -1629,6 +1619,7 @@ The model performance plot compares out-of-sample log loss across each model typ
         _img_small("https://github.com/user-attachments/assets/634c745c-a553-4e7d-bd74-26408e633c3c")
 
         st.markdown("""
+
 The calibration plot compares predicted win probabilities to actual outcomes for all five models, illustrating how well each model's probability estimates line up with observed frequencies across the probability range. No particular model shows any significant deviation from the baseline, indicating that all models produce reasonably well-calibrated probabilities.
 """, unsafe_allow_html=True)
 
@@ -1698,13 +1689,17 @@ Take the North Carolina vs. Ole Miss example above. The model gives UNC a **62.8
 
 ### Prediction Storytelling
 If you listen to college basketball analysts break down tournament matchups, their reasoning tends to be very specific and narrative-driven:
-- *"The underdog will want to push the pace, force turnovers, and get transition buckets. That will make the favorite uncomfortable"*
-- *"I don't think they have the size and physicality to match up in the paint"*
+- *"The underdog will want to push the pace, force turnovers, and get transition buckets, which isn't the favorite's style of play and will make them uncomfortable"*
+- *"I don't think they have the size and physicality to match up in the paint."*
 
-These are stories built on particular box score traits. The SHAP plots tell a different story:
+These are stories built on particular box score traits, such as tempo, turnover rate, rebounding, and height. The SHAP plots tell a different story:
 - The features that **dominate predictions** across nearly every matchup are **catch-all adjusted efficiency metrics**: adjusted offensive and defensive efficiency, overall efficiency margins, power ratings like BARTHAG, and resume-quality indicators like KPI and WAB
 - The specific box score stats that analysts love to build narratives around don't often crack the top of the waterfall
-- When I experimented with **removing the catch-all efficiency metrics** to force the model onto those more granular features, the **predictions became noticeably less reliable**
+- When I experimented with **removing the catch-all efficiency metrics** to force the model onto those more granular, "storytelling-friendly" features, the **predictions became noticeably less reliable**
+
+Why? It likely comes down to what these composite metrics actually represent:
+- A stat like adjusted offensive efficiency is **already integrating** a team's shooting, turnover rate, offensive rebounding, free throw rate, and the quality of defenses they've faced into a single tempo- and opponent-adjusted number
+- Asking the model to **re-derive that same signal** from the raw components, especially with a small dataset, introduces noise without adding new information
 
 In short, the model's best predictions come from knowing ***how good*** a team is overall, not from dissecting ***how*** they're good. The narrative might be less colorful than what you'd hear on a studio show, but the probabilities are sharper for it.
 
