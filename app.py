@@ -253,8 +253,9 @@ html, body, [data-testid="stAppViewContainer"] { background: #f5f3ef; color: #1a
 .block-container { padding: 2rem 0.25rem 4rem 0.25rem; max-width: 100%; }
 
 h1 {
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'DM Sans', sans-serif;
     font-size: clamp(2.5rem, 6vw, 5rem);
+    font-weight: 700;
     letter-spacing: 0.08em;
     background: linear-gradient(135deg, #c97b00 0%, #e8a000 50%, #c97b00 100%);
     -webkit-background-clip: text;
@@ -1104,10 +1105,13 @@ st.markdown("""
     border-radius: 5px !important;
     background: #faf8f4 !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.78rem !important;
+    font-size: 0.72rem !important;
     font-weight: 500 !important;
     color: #555 !important;
-    padding: 4px 10px !important;
+    padding: 2px 8px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    line-height: 1.4 !important;
     transition: all 0.15s !important;
 }
 [data-testid="stButton"] button[kind="secondary"]:hover {
@@ -1121,9 +1125,12 @@ st.markdown("""
     border: 1px solid #c97b00 !important;
     border-radius: 5px !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.78rem !important;
+    font-size: 0.72rem !important;
     font-weight: 700 !important;
-    padding: 4px 10px !important;
+    padding: 2px 8px !important;
+    min-height: 0 !important;
+    height: auto !important;
+    line-height: 1.4 !important;
 }
 [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
     border-color: #c97b00;
@@ -1229,7 +1236,7 @@ with tab_bracket:
     # Title bar (rendered as HTML for consistent styling)
     with _bcol_c:
         st.markdown(
-            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.25rem;'
+            f'<div style="font-family:\'DM Sans\',sans-serif;font-size:1.85rem;'
             f'font-weight:700;color:#c97b00;text-align:center;padding-top:6px;">'
             f'{bracket_year} Bracket</div>',
             unsafe_allow_html=True,
@@ -1359,7 +1366,7 @@ with tab_probs:
     width: 1060px; max-width: 100%;
   }}
   #title {{
-    font-size: 1.05rem; font-weight: 700; color: #c97b00;
+    font-size: 1.85rem; font-weight: 700; color: #c97b00;
     flex: 1; text-align: center;
   }}
   #year-select {{
