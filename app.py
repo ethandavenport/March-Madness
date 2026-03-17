@@ -255,7 +255,7 @@ html, body, [data-testid="stAppViewContainer"] { background: #f5f3ef; color: #1a
 
 h1 {
     font-family: 'DM Sans', sans-serif !important;
-    font-size: clamp(2.5rem, 6vw, 5rem) !important;
+    font-size: 2.2rem !important;
     font-weight: 700 !important;
     letter-spacing: 0.08em;
     color: #c97b00 !important;
@@ -1100,16 +1100,17 @@ st.markdown("""
 /* Secondary (unselected) */
 [data-testid="stButton"] button[kind="secondary"] {
     border: 1px solid #ddd9d2 !important;
-    border-radius: 5px !important;
+    border-radius: 4px !important;
     background: #faf8f4 !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.68rem !important;
+    font-size: 0.62rem !important;
     font-weight: 500 !important;
     color: #555 !important;
-    padding: 1px 6px !important;
+    padding: 0px 5px !important;
     min-height: 0 !important;
-    height: auto !important;
-    line-height: 1.3 !important;
+    max-height: 22px !important;
+    height: 22px !important;
+    line-height: 1 !important;
     margin: 0 !important;
     transition: all 0.15s !important;
 }
@@ -1122,14 +1123,15 @@ st.markdown("""
     background: #c97b00 !important;
     color: #fff !important;
     border: 1px solid #c97b00 !important;
-    border-radius: 5px !important;
+    border-radius: 4px !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.68rem !important;
+    font-size: 0.62rem !important;
     font-weight: 700 !important;
-    padding: 1px 6px !important;
+    padding: 0px 5px !important;
     min-height: 0 !important;
-    height: auto !important;
-    line-height: 1.3 !important;
+    max-height: 22px !important;
+    height: 22px !important;
+    line-height: 1 !important;
     margin: 0 !important;
 }
 /* Reduce vertical spacing around button containers */
@@ -1140,6 +1142,10 @@ st.markdown("""
 [data-testid="stButton"] > div {
     margin: 0 !important;
     padding: 0 !important;
+}
+/* Shrink the column gaps around toggle buttons */
+[data-testid="stHorizontalBlock"] {
+    gap: 0.25rem !important;
 }
 [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
     border-color: #c97b00;
@@ -1202,9 +1208,9 @@ with tab_bracket:
             current = st.session_state[skey]
             with _tcols[idx + 1]:
                 st.markdown(
-                    f'<div style="font-family:\'DM Sans\',sans-serif;font-size:0.68rem;'
+                    f'<div style="font-family:\'DM Sans\',sans-serif;font-size:0.60rem;'
                     f'font-weight:600;color:#888;letter-spacing:0.05em;text-transform:uppercase;'
-                    f'text-align:center;margin-bottom:4px;">{game["SeedNum"]}-seed</div>',
+                    f'text-align:center;margin-bottom:2px;">{game["SeedNum"]}-seed</div>',
                     unsafe_allow_html=True,
                 )
                 bc1, bc2 = st.columns(2)
@@ -1828,7 +1834,7 @@ In the Final Four and title game, the bracket simply takes the team with the hig
 ### Historical Rate Adjustment
 After implementing the initial bracket strategy, the results were **a bit too upset-happy,** especially in later rounds. The root cause was that the lift thresholds are calibrated against real historical games, where the teams that advance to later rounds include a fair amount of randomness. But in the hypothetical bracket, the **"analytically strong underdogs" from earlier rounds are the ones advancing**, which means later-round matchups are more likely to feature teams that are genuinely worthy of another upset pick. This creates a compounding effect where the bracket keeps picking upsets deeper into the tournament at a higher rate than history would support.
 
-To correct for this, an **additional conservative factor** of <sup>2</sup>&frasl;<sub>3</sub> · `std(lift thresholds)` is added to the lift thresholds for Rounds 2–4 (Round of 32 through Elite Eight). This nudges the bar for calling an upset slightly higher in later rounds, dampening the compounding effect.
+To correct for this, an **additional conservative factor** of `(`<code style="display:inline-flex;flex-direction:column;align-items:center;line-height:1;vertical-align:middle;font-size:0.85em;"><span style="border-bottom:1px solid #333;padding:0 2px;">2</span><span style="padding:0 2px;">3</span></code>`) · std(lift thresholds)` is added to the lift thresholds for Rounds 2–4 (Round of 32 through Elite Eight). This nudges the bar for calling an upset slightly higher in later rounds, dampening the compounding effect.
 
 ---
 
