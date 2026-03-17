@@ -1143,6 +1143,12 @@ with tab_probs:
     # Try adv_all.csv first (combined), fall back to adv_2025.csv
     if os.path.exists("adv_all.csv"):
         adv_all = pd.read_csv("adv_all.csv")
+        # Handle old CSVs that saved the index as a column
+        if "Unnamed: 0" in adv_all.columns:
+            if "TeamName" not in adv_all.columns:
+                adv_all = adv_all.rename(columns={"Unnamed: 0": "TeamName"})
+            else:
+                adv_all = adv_all.drop(columns=["Unnamed: 0"])
         adv_all["Season"] = adv_all["Season"].astype(int)
         # Ensure PlayinKey column exists (empty string for legacy files)
         if "PlayinKey" not in adv_all.columns:

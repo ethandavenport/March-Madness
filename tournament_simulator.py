@@ -666,14 +666,17 @@ def save_advancement_csv(
             })
 
         for combo_key, adv_df in results.items():
-            frame = adv_df.copy()
+            frame = adv_df.reset_index()  # TeamName index -> column
+            # Ensure TeamName column exists (index name varies)
+            if "TeamName" not in frame.columns and frame.columns[0] not in ("Seed", "Region", "SeedNum"):
+                frame = frame.rename(columns={frame.columns[0]: "TeamName"})
             frame["Season"] = int(season)
-            # PlayinKey: JSON-serialized tuple of winner names, or "" if none
+            # PlayinKey: JSON-serialized list of winner names, or "" if none
             frame["PlayinKey"] = json.dumps(list(combo_key)) if combo_key else ""
             adv_frames.append(frame)
 
     combined = pd.concat(adv_frames, ignore_index=True)
-    combined.to_csv(path, index=True)
+    combined.to_csv(path, index=False)
     print(f"Saved {path} ({len(combined)} rows)")
 
     if meta_rows:
