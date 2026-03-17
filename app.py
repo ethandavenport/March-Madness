@@ -1144,15 +1144,26 @@ with tab_probs:
     if os.path.exists("adv_all.csv"):
         adv_all = pd.read_csv("adv_all.csv")
         adv_all["Season"] = adv_all["Season"].astype(int)
+        # Ensure PlayinKey column exists (empty string for legacy files)
+        if "PlayinKey" not in adv_all.columns:
+            adv_all["PlayinKey"] = ""
+        adv_all["PlayinKey"] = adv_all["PlayinKey"].fillna("")
         available_years = sorted(adv_all["Season"].unique(), reverse=True)
     elif os.path.exists("adv_2025.csv"):
         adv_all = pd.read_csv("adv_2025.csv")
         adv_all["Season"] = 2025
+        adv_all["PlayinKey"] = ""
         available_years = [2025]
     else:
         st.error("Could not find adv_all.csv or adv_2025.csv.")
         adv_all = None
         available_years = []
+
+    # Load play-in metadata (tells us which games have unresolved play-in choices)
+    playin_meta = None
+    if os.path.exists("playin_meta.csv"):
+        playin_meta = pd.read_csv("playin_meta.csv")
+        playin_meta["Season"] = playin_meta["Season"].astype(int)
 
     if adv_all is not None:
         round_cols   = ["Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship", "Champion"]
@@ -1164,23 +1175,43 @@ with tab_probs:
         }
         all_cols = ["Team", "Seed"] + round_cols
 
-        # Serialize ALL years' data into JS — year switching handled entirely in JS,
-        # no Streamlit rerun needed, no page reload, tab state preserved.
-        all_years_data = {}
+        # Build per-year data, keyed by (year, playin_key_str)
+        # For years with no play-in choices, there's one entry with key ""
+        # For years with choices, there's one entry per combo
+        all_years_data = {}        # { year: { playin_key_str: [rows] } }
+        playin_meta_js = {}        # { year: [ {region, seed, teamA, teamB}, ... ] }
+
         for yr in available_years:
-            adv_yr = adv_all[adv_all["Season"] == yr][display_cols].copy()
-            adv_yr = adv_yr.rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
-            adv_yr = adv_yr.astype(object).where(adv_yr.notna(), None)
-            all_years_data[int(yr)] = adv_yr.to_dict(orient="records")
+            yr_data = adv_all[adv_all["Season"] == yr]
+            keys_in_year = yr_data["PlayinKey"].unique().tolist()
 
-        all_data_json = json.dumps(all_years_data)
-        cols_json     = json.dumps(all_cols)
-        labels_json   = json.dumps(col_labels)
-        years_json    = json.dumps([int(y) for y in available_years])
-        init_year_json = json.dumps(int(available_years[0]))
+            year_dict = {}
+            for pk in keys_in_year:
+                subset = yr_data[yr_data["PlayinKey"] == pk][display_cols].copy()
+                subset = subset.rename(columns={"TeamName": "Team", "SeedNum": "Seed"})
+                subset = subset.astype(object).where(subset.notna(), None)
+                year_dict[pk] = subset.to_dict(orient="records")
+            all_years_data[int(yr)] = year_dict
 
-        n_rows     = max(len(v) for v in all_years_data.values())
-        est_height = n_rows * 33 + 120
+            # Play-in metadata for this year
+            if playin_meta is not None and not playin_meta.empty:
+                pm_yr = playin_meta[playin_meta["Season"] == yr]
+                if not pm_yr.empty:
+                    playin_meta_js[int(yr)] = pm_yr[["Region", "SeedNum", "TeamA", "TeamB"]].to_dict(orient="records")
+
+        all_data_json    = json.dumps(all_years_data)
+        playin_meta_json = json.dumps(playin_meta_js)
+        cols_json        = json.dumps(all_cols)
+        labels_json      = json.dumps(col_labels)
+        years_json       = json.dumps([int(y) for y in available_years])
+        init_year_json   = json.dumps(int(available_years[0]))
+
+        n_rows = max(
+            len(rows)
+            for year_dict in all_years_data.values()
+            for rows in year_dict.values()
+        )
+        est_height = n_rows * 33 + 160  # extra room for play-in selectors
 
         table_component = f"""
 <!DOCTYPE html>
@@ -1210,6 +1241,34 @@ with tab_probs:
   }}
   #year-select:hover {{ border-color: #c97b00; }}
   #year-select:focus {{ border-color: #c97b00; box-shadow: 0 0 0 2px #c97b0022; }}
+
+  /* ── Play-in selectors ── */
+  #playin-bar {{
+    display: none; justify-content: center; margin-bottom: 10px;
+  }}
+  #playin-bar.visible {{ display: flex; }}
+  #playin-inner {{
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    justify-content: center;
+  }}
+  .playin-group {{
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: #555;
+  }}
+  .playin-label {{
+    font-weight: 600; color: #888; font-size: 0.68rem;
+    letter-spacing: 0.05em; text-transform: uppercase;
+  }}
+  .playin-btn {{
+    padding: 4px 10px; border: 1px solid #ddd9d2; border-radius: 5px;
+    background: #faf8f4; font-family: 'DM Sans', sans-serif;
+    font-size: 0.78rem; font-weight: 500; color: #555;
+    cursor: pointer; transition: all 0.15s;
+  }}
+  .playin-btn:hover {{ border-color: #c97b00; color: #c97b00; }}
+  .playin-btn.active {{
+    background: #c97b00; color: #fff; border-color: #c97b00; font-weight: 700;
+  }}
 
   /* ── Table ── */
   #outer {{ display: flex; justify-content: center; }}
@@ -1247,6 +1306,10 @@ with tab_probs:
   </div>
 </div>
 
+<div id="playin-bar">
+  <div id="playin-inner"></div>
+</div>
+
 <div id="outer"><div id="wrap"><table id="tbl">
   <colgroup id="colgroup"></colgroup>
   <thead id="thead"></thead>
@@ -1254,16 +1317,46 @@ with tab_probs:
 </table></div></div>
 
 <script>
-const ALL_DATA  = {all_data_json};
-const ALL_COLS  = {cols_json};
-const LABELS    = {labels_json};
-const YEARS     = {years_json};
-const TEXT_COLS = new Set(["Team", "Seed"]);
+// ALL_DATA[year] = {{ playin_key_str: [rows], ... }}
+// For years with no play-in choices, the only key is ""
+const ALL_DATA    = {all_data_json};
+const PLAYIN_META = {playin_meta_json};
+const ALL_COLS    = {cols_json};
+const LABELS      = {labels_json};
+const YEARS       = {years_json};
+const TEXT_COLS   = new Set(["Team", "Seed"]);
 
-let curYear = {init_year_json};
-let rows    = ALL_DATA[curYear];
-let sortCol = "Final Four";
-let sortAsc = false;
+let curYear    = {init_year_json};
+let sortCol    = "Final Four";
+let sortAsc    = false;
+
+// Current play-in selections: {{ game_index: chosen_team_name }}
+let playinChoices = {{}};
+
+// Get the currently active playin key string from choices
+function getActiveKey() {{
+  const yearData = ALL_DATA[curYear];
+  const keys = Object.keys(yearData);
+  if (keys.length <= 1) return keys[0] || "";
+
+  // Build the key from current choices
+  const meta = PLAYIN_META[curYear] || [];
+  if (meta.length === 0) return keys[0] || "";
+
+  const chosen = meta.map((g, i) => playinChoices[i] || g.TeamA);
+  const keyStr = JSON.stringify(chosen);
+
+  // Find matching key
+  if (yearData[keyStr] !== undefined) return keyStr;
+
+  // Fallback: first key
+  return keys[0];
+}}
+
+function getActiveRows() {{
+  const key = getActiveKey();
+  return ALL_DATA[curYear][key] || [];
+}}
 
 // Populate year dropdown
 const sel = document.getElementById("year-select");
@@ -1275,13 +1368,55 @@ YEARS.forEach(y => {{
   sel.appendChild(opt);
 }});
 
-// Year change: just swap data and re-render, no reload
 sel.addEventListener("change", () => {{
   curYear = parseInt(sel.value);
-  rows    = ALL_DATA[curYear];
+  playinChoices = {{}};
   document.getElementById("title").textContent = curYear + " Tournament";
+  renderPlayinBar();
   render();
 }});
+
+function renderPlayinBar() {{
+  const bar   = document.getElementById("playin-bar");
+  const inner = document.getElementById("playin-inner");
+  const meta  = PLAYIN_META[curYear];
+  const keys  = Object.keys(ALL_DATA[curYear]);
+
+  if (!meta || meta.length === 0 || keys.length <= 1) {{
+    bar.classList.remove("visible");
+    inner.innerHTML = "";
+    return;
+  }}
+
+  bar.classList.add("visible");
+  inner.innerHTML = "";
+
+  meta.forEach((game, idx) => {{
+    const grp = document.createElement("div");
+    grp.className = "playin-group";
+
+    const label = document.createElement("span");
+    label.className = "playin-label";
+    label.textContent = game.SeedNum + "-seed:";
+    grp.appendChild(label);
+
+    [game.TeamA, game.TeamB].forEach(team => {{
+      const btn = document.createElement("button");
+      btn.className = "playin-btn";
+      btn.textContent = team;
+      const chosen = playinChoices[idx] || game.TeamA;
+      if (chosen === team) btn.classList.add("active");
+      btn.addEventListener("click", () => {{
+        playinChoices[idx] = team;
+        renderPlayinBar();
+        render();
+      }});
+      grp.appendChild(btn);
+    }});
+
+    inner.appendChild(grp);
+  }});
+}}
 
 function pctStyle(v) {{
   if (v === null || v === undefined || isNaN(v)) return "";
@@ -1298,6 +1433,8 @@ function fmtPct(v) {{
 }}
 
 function render() {{
+  const rows = getActiveRows();
+
   const colgroup = document.getElementById("colgroup");
   colgroup.innerHTML = "";
   ALL_COLS.forEach(col => {{
@@ -1363,6 +1500,7 @@ function render() {{
   }});
 }}
 
+renderPlayinBar();
 render();
 </script>
 </body>
