@@ -262,14 +262,22 @@ h1 {
     background-clip: text;
     margin: 0 0 0.1em 0;
     line-height: 1;
+    text-align: center;
+    text-transform: uppercase;
 }
 .subtitle {
     font-family: 'DM Sans', sans-serif;
-    font-size: 0.95rem;
+    font-size: 0.82rem;
     color: #888;
     letter-spacing: 0.15em;
     text-transform: uppercase;
+    text-align: center;
+    margin: 0;
+    line-height: 1.6;
+}
+.subtitle-block {
     margin-bottom: 1.5rem;
+    text-align: center;
 }
 
 /* ── Round headers ── */
@@ -512,8 +520,11 @@ h1 {
 """, unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
-st.markdown("<h1>March Madness</h1>", unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Model Predictions · Mixture of Experts</p>', unsafe_allow_html=True)
+st.markdown("<h1>MARCH MADNESS</h1>", unsafe_allow_html=True)
+st.markdown("""<div class="subtitle-block">
+<p class="subtitle">Author: Ethan Davenport</p>
+<p class="subtitle">Model Predictions Made Using Mixture of Experts</p>
+</div>""", unsafe_allow_html=True)
 
 # ── Game card renderers ────────────────────────────────────────────────────────
 
@@ -1085,6 +1096,35 @@ st.markdown("""
     color: #333;
     border-radius: 6px;
 }
+
+/* ── Play-in toggle buttons (bracket tab) ── */
+/* Secondary (unselected) */
+[data-testid="stButton"] button[kind="secondary"] {
+    border: 1px solid #ddd9d2 !important;
+    border-radius: 5px !important;
+    background: #faf8f4 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+    color: #555 !important;
+    padding: 4px 10px !important;
+    transition: all 0.15s !important;
+}
+[data-testid="stButton"] button[kind="secondary"]:hover {
+    border-color: #c97b00 !important;
+    color: #c97b00 !important;
+}
+/* Primary (selected) */
+[data-testid="stButton"] button[kind="primary"] {
+    background: #c97b00 !important;
+    color: #fff !important;
+    border: 1px solid #c97b00 !important;
+    border-radius: 5px !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    padding: 4px 10px !important;
+}
 [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
     border-color: #c97b00;
 }
@@ -1095,7 +1135,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-tab_bracket, tab_probs, tab_about = st.tabs(["🏅  Bracket", "▦  Round Probabilities", "📖  How It Works"])
+tab_bracket, tab_probs, tab_about = st.tabs(["⊐―  Bracket", "▦  Round Probabilities", "📖  How It Works"])
 
 with tab_bracket:
     import json as _json
@@ -1123,18 +1163,51 @@ with tab_bracket:
 
     # Determine which bracket to display
     if len(_bracket_keys) > 1 and _playin_meta_bracket:
-        # Show play-in toggles
+        # Build play-in toggle HTML matching the round probs tab style
         _playin_choices = {}
-        _toggle_cols = st.columns(len(_playin_meta_bracket))
         for idx, game in enumerate(_playin_meta_bracket):
-            with _toggle_cols[idx]:
-                chosen = st.radio(
-                    f"{game['SeedNum']}-seed",
-                    [game["TeamA"], game["TeamB"]],
-                    horizontal=True,
-                    key=f"bracket_playin_{bracket_year}_{idx}",
+            skey = f"bracket_playin_{bracket_year}_{idx}"
+            if skey not in st.session_state:
+                st.session_state[skey] = game["TeamA"]
+            _playin_choices[idx] = st.session_state[skey]
+
+        def _make_playin_callback(skey, team):
+            def _cb():
+                st.session_state[skey] = team
+            return _cb
+
+        # Render toggle row
+        n_games = len(_playin_meta_bracket)
+        # Pad with spacer columns to center the toggles
+        col_spec = [2] + [1] * n_games + [2]
+        _tcols = st.columns(col_spec)
+        for idx, game in enumerate(_playin_meta_bracket):
+            skey = f"bracket_playin_{bracket_year}_{idx}"
+            current = st.session_state[skey]
+            with _tcols[idx + 1]:
+                st.markdown(
+                    f'<div style="font-family:\'DM Sans\',sans-serif;font-size:0.68rem;'
+                    f'font-weight:600;color:#888;letter-spacing:0.05em;text-transform:uppercase;'
+                    f'text-align:center;margin-bottom:4px;">{game["SeedNum"]}-seed</div>',
+                    unsafe_allow_html=True,
                 )
-                _playin_choices[idx] = chosen
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    st.button(
+                        game["TeamA"],
+                        key=f"btn_{skey}_a",
+                        on_click=_make_playin_callback(skey, game["TeamA"]),
+                        type="primary" if current == game["TeamA"] else "secondary",
+                        use_container_width=True,
+                    )
+                with bc2:
+                    st.button(
+                        game["TeamB"],
+                        key=f"btn_{skey}_b",
+                        on_click=_make_playin_callback(skey, game["TeamB"]),
+                        type="primary" if current == game["TeamB"] else "secondary",
+                        use_container_width=True,
+                    )
 
         # Build the key to match
         _chosen_list = [_playin_choices.get(i, g["TeamA"]) for i, g in enumerate(_playin_meta_bracket)]
@@ -1143,7 +1216,6 @@ with tab_bracket:
         if _active_key in _bracket_data:
             bracket, shap_cache, results_cache = _bracket_data[_active_key]
         else:
-            # Fallback to first key
             bracket, shap_cache, results_cache = _bracket_data[_bracket_keys[0]]
     else:
         bracket, shap_cache, results_cache = _bracket_data[_bracket_keys[0]]
