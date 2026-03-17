@@ -313,7 +313,7 @@ h1 {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 3px;
 }
 .region-block { min-width: 0; }
 .rounds-row     { display: flex; align-items: flex-start; }
