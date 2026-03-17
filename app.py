@@ -66,45 +66,59 @@ def _get_layout(year):
 @st.cache_data
 def _load_bracket_year(year):
     """Load bracket_YYYY.csv for a single year and build caches.
-    Returns (bracket_df, shap_cache, results_cache)."""
+    Returns dict: { playin_key_str: (bracket_df, shap_cache, results_cache) }
+    For years with no play-in choices, the only key is "".
+    """
     path = _bracket_files[year]
-    df = pd.read_csv(path)
-    df["Round"] = pd.Categorical(df["Round"], categories=ROUND_ORDER, ordered=True)
-    df = df.sort_values("Round")
+    raw = pd.read_csv(path)
+    raw["Round"] = pd.Categorical(raw["Round"], categories=ROUND_ORDER, ordered=True)
+    raw = raw.sort_values("Round")
 
-    # SHAP cache
-    if "SHAPPlot" in df.columns:
-        sc = (
-            df[["MatchID", "SHAPPlot"]]
-            .dropna(subset=["SHAPPlot"])
-            .set_index("MatchID")["SHAPPlot"]
-            .to_dict()
-        )
-    else:
-        sc = {}
+    if "PlayinKey" not in raw.columns:
+        raw["PlayinKey"] = ""
+    raw["PlayinKey"] = raw["PlayinKey"].fillna("")
 
-    # Results cache
-    has_results = "ActualA" in df.columns
-    rc_cols = ["MatchID","ATeamID","BTeamID",
-               "ActualA","ActualASeed","ActualATid",
-               "ActualB","ActualBSeed","ActualBTid"]
-    for wc in ["ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
-        if wc in df.columns:
-            rc_cols.append(wc)
-    if has_results:
-        rc = (
-            df[rc_cols]
-            .set_index("MatchID")
-            .to_dict(orient="index")
-        )
-    else:
-        rc = {}
+    result = {}
+    for pk in raw["PlayinKey"].unique():
+        df = raw[raw["PlayinKey"] == pk].copy()
 
-    return df, sc, rc
+        # SHAP cache
+        if "SHAPPlot" in df.columns:
+            sc = (
+                df[["MatchID", "SHAPPlot"]]
+                .dropna(subset=["SHAPPlot"])
+                .set_index("MatchID")["SHAPPlot"]
+                .to_dict()
+            )
+        else:
+            sc = {}
+
+        # Results cache
+        has_results = "ActualA" in df.columns
+        rc_cols = ["MatchID","ATeamID","BTeamID",
+                   "ActualA","ActualASeed","ActualATid",
+                   "ActualB","ActualBSeed","ActualBTid"]
+        for wc in ["ActualWinner","ActualWinnerSeed","ActualWinnerTid"]:
+            if wc in df.columns:
+                rc_cols.append(wc)
+        if has_results:
+            rc = (
+                df[rc_cols]
+                .set_index("MatchID")
+                .to_dict(orient="index")
+            )
+        else:
+            rc = {}
+
+        result[pk] = (df, sc, rc)
+
+    return result
 
 
 # Initialise with the most recent year (will be overridden in bracket tab)
-bracket, shap_cache, results_cache = _load_bracket_year(_bracket_years[0])
+_init_bracket_data = _load_bracket_year(_bracket_years[0])
+_init_key = list(_init_bracket_data.keys())[0]
+bracket, shap_cache, results_cache = _init_bracket_data[_init_key]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -1084,8 +1098,9 @@ st.markdown("""
 tab_bracket, tab_probs, tab_about = st.tabs(["🏅  Bracket", "▦  Round Probabilities", "📖  How It Works"])
 
 with tab_bracket:
+    import json as _json
+
     # ── Year selector ──
-    # Use Streamlit columns to place title + dropdown in a single row
     _bcol_l, _bcol_c, _bcol_r = st.columns([1, 6, 1])
     with _bcol_r:
         bracket_year = st.selectbox(
@@ -1094,7 +1109,44 @@ with tab_bracket:
         )
 
     # Reload bracket data for selected year
-    bracket, shap_cache, results_cache = _load_bracket_year(bracket_year)
+    _bracket_data = _load_bracket_year(bracket_year)
+    _bracket_keys = sorted(_bracket_data.keys())
+
+    # Load play-in metadata for toggle labels
+    _playin_meta_bracket = None
+    if os.path.exists("playin_meta.csv"):
+        _pm = pd.read_csv("playin_meta.csv")
+        _pm["Season"] = _pm["Season"].astype(int)
+        _pm_yr = _pm[_pm["Season"] == bracket_year]
+        if not _pm_yr.empty:
+            _playin_meta_bracket = _pm_yr[["Region", "SeedNum", "TeamA", "TeamB"]].to_dict(orient="records")
+
+    # Determine which bracket to display
+    if len(_bracket_keys) > 1 and _playin_meta_bracket:
+        # Show play-in toggles
+        _playin_choices = {}
+        _toggle_cols = st.columns(len(_playin_meta_bracket))
+        for idx, game in enumerate(_playin_meta_bracket):
+            with _toggle_cols[idx]:
+                chosen = st.radio(
+                    f"{game['SeedNum']}-seed",
+                    [game["TeamA"], game["TeamB"]],
+                    horizontal=True,
+                    key=f"bracket_playin_{bracket_year}_{idx}",
+                )
+                _playin_choices[idx] = chosen
+
+        # Build the key to match
+        _chosen_list = [_playin_choices.get(i, g["TeamA"]) for i, g in enumerate(_playin_meta_bracket)]
+        _active_key = _json.dumps(_chosen_list, separators=(",", ":"))
+
+        if _active_key in _bracket_data:
+            bracket, shap_cache, results_cache = _bracket_data[_active_key]
+        else:
+            # Fallback to first key
+            bracket, shap_cache, results_cache = _bracket_data[_bracket_keys[0]]
+    else:
+        bracket, shap_cache, results_cache = _bracket_data[_bracket_keys[0]]
 
     # Region layout for this year: (TL, BL, TR, BR)
     _layout = _get_layout(bracket_year)
