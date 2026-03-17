@@ -520,18 +520,11 @@ h1 {
 @media (max-width: 768px) {
     .block-container { padding: 1rem 0.15rem 2rem 0.15rem; }
 
-    /* Bracket: give the wrapper a fixed min-width that fits all content,
-       then let the block-container scroll it. Each side needs ~4 cols × 160px
-       + padding + champ centre = ~1960px total. */
+    /* Let the entire page be wide enough for the bracket.
+       The body/viewport scrolls naturally — no nested scroll containers. */
     .bracket-wrapper {
         min-width: 1960px;
-        position: relative;  /* keep champ-col anchored here */
-    }
-
-    /* Make Streamlit's own container scroll the bracket */
-    [data-testid="stMarkdownContainer"] {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        position: relative;
     }
 
     /* Each side-half must be wide enough for 4 readable round columns */
@@ -543,7 +536,7 @@ h1 {
     .round-col { min-width: 155px; }
     .game { min-width: 145px; }
 
-    /* Champ col stays centered on the bracket, not the viewport */
+    /* Champ col stays centered on the bracket */
     .champ-col { width: 560px; }
 
     /* Round headers row: same total width so they align */
@@ -556,7 +549,7 @@ h1 {
 """, unsafe_allow_html=True)
 
 # Viewport meta — allow pinch-to-zoom on mobile
-st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=3.0, user-scalable=yes">', unsafe_allow_html=True)
+st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes">', unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown("<h1>MARCH MADNESS</h1>", unsafe_allow_html=True)
@@ -1238,38 +1231,35 @@ with tab_bracket:
                 st.session_state[skey] = team
             return _cb
 
-        # Render toggle row
-        n_games = len(_playin_meta_bracket)
-        # Pad with spacer columns to center the toggles
-        col_spec = [2] + [1] * n_games + [2]
-        _tcols = st.columns(col_spec)
+        # Render toggle rows — each play-in game is its own row:
+        # [spacer | label | button A | button B | spacer]
         for idx, game in enumerate(_playin_meta_bracket):
             skey = f"bracket_playin_{bracket_year}_{idx}"
             current = st.session_state[skey]
-            with _tcols[idx + 1]:
+            _s1, _lbl, _ba, _bb, _s2 = st.columns([3, 1, 1, 1, 3])
+            with _lbl:
                 st.markdown(
                     f'<div style="font-family:\'DM Sans\',sans-serif;font-size:0.60rem;'
                     f'font-weight:600;color:#888;letter-spacing:0.05em;text-transform:uppercase;'
-                    f'text-align:center;margin-bottom:2px;">{game["SeedNum"]}-seed</div>',
+                    f'text-align:right;padding-top:4px;">{game["SeedNum"]}-seed</div>',
                     unsafe_allow_html=True,
                 )
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    st.button(
-                        game["TeamA"],
-                        key=f"btn_{skey}_a",
-                        on_click=_make_playin_callback(skey, game["TeamA"]),
-                        type="primary" if current == game["TeamA"] else "secondary",
-                        use_container_width=True,
-                    )
-                with bc2:
-                    st.button(
-                        game["TeamB"],
-                        key=f"btn_{skey}_b",
-                        on_click=_make_playin_callback(skey, game["TeamB"]),
-                        type="primary" if current == game["TeamB"] else "secondary",
-                        use_container_width=True,
-                    )
+            with _ba:
+                st.button(
+                    game["TeamA"],
+                    key=f"btn_{skey}_a",
+                    on_click=_make_playin_callback(skey, game["TeamA"]),
+                    type="primary" if current == game["TeamA"] else "secondary",
+                    use_container_width=True,
+                )
+            with _bb:
+                st.button(
+                    game["TeamB"],
+                    key=f"btn_{skey}_b",
+                    on_click=_make_playin_callback(skey, game["TeamB"]),
+                    type="primary" if current == game["TeamB"] else "secondary",
+                    use_container_width=True,
+                )
 
         # Build the key to match
         _chosen_list = [_playin_choices.get(i, g["TeamA"]) for i, g in enumerate(_playin_meta_bracket)]
