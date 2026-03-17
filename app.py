@@ -515,8 +515,23 @@ h1 {
     text-align: center;
     padding-top: 5px;
 }
+
+/* ── Mobile-friendly adjustments ── */
+@media (max-width: 768px) {
+    .block-container { padding: 1rem 0.15rem 2rem 0.15rem; }
+    .bracket-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .champ-col { width: 400px; }
+    .round-header-cell { font-size: 0.65rem; }
+    .game .team { font-size: 0.65rem; padding: 3px 5px; gap: 3px; }
+    .game .seed { font-size: 0.52rem; }
+    .game .pct { font-size: 0.52rem; min-width: 22px; }
+    .game .prob-header { font-size: 0.45rem; }
+}
 </style>
 """, unsafe_allow_html=True)
+
+# Viewport meta for mobile scaling
+st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">', unsafe_allow_html=True)
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown("<h1>MARCH MADNESS</h1>", unsafe_allow_html=True)
