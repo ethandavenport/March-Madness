@@ -53,6 +53,7 @@ _REGION_LAYOUTS = {
     2023: ("X", "W", "Y", "Z"),
     2024: ("W", "X", "Z", "Y"),
     2025: ("Y", "Z", "W", "X"),
+    2026: ("W", "X", "Z", "Y"),
 }
 # Default layout if year not in map
 _DEFAULT_LAYOUT = ("W", "X", "Y", "Z")
@@ -63,7 +64,7 @@ def _get_layout(year):
     return _REGION_LAYOUTS.get(year, _DEFAULT_LAYOUT)
 
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def _load_bracket_year(year):
     """Load bracket_YYYY.csv for a single year and build caches.
     Returns dict: { playin_key_str: (bracket_df, shap_cache, results_cache) }
@@ -257,10 +258,7 @@ h1 {
     font-size: clamp(2.5rem, 6vw, 5rem);
     font-weight: 700;
     letter-spacing: 0.08em;
-    background: linear-gradient(135deg, #c97b00 0%, #e8a000 50%, #c97b00 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #c97b00;
     margin: 0 0 0.1em 0;
     line-height: 1;
     text-align: center;
@@ -1105,13 +1103,14 @@ st.markdown("""
     border-radius: 5px !important;
     background: #faf8f4 !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.72rem !important;
+    font-size: 0.68rem !important;
     font-weight: 500 !important;
     color: #555 !important;
-    padding: 2px 8px !important;
+    padding: 1px 6px !important;
     min-height: 0 !important;
     height: auto !important;
-    line-height: 1.4 !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
     transition: all 0.15s !important;
 }
 [data-testid="stButton"] button[kind="secondary"]:hover {
@@ -1125,12 +1124,22 @@ st.markdown("""
     border: 1px solid #c97b00 !important;
     border-radius: 5px !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.72rem !important;
+    font-size: 0.68rem !important;
     font-weight: 700 !important;
-    padding: 2px 8px !important;
+    padding: 1px 6px !important;
     min-height: 0 !important;
     height: auto !important;
-    line-height: 1.4 !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
+}
+/* Reduce vertical spacing around button containers */
+[data-testid="stButton"] {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+[data-testid="stButton"] > div {
+    margin: 0 !important;
+    padding: 0 !important;
 }
 [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
     border-color: #c97b00;
