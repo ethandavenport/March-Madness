@@ -520,27 +520,37 @@ h1 {
 @media (max-width: 768px) {
     .block-container { padding: 1rem 0.15rem 2rem 0.15rem; }
 
-    /* Bracket: enforce minimum width so cards are readable, scroll horizontally */
+    /* Bracket: give the wrapper a fixed min-width that fits all content,
+       then let the block-container scroll it. Each side needs ~4 cols × 160px
+       + padding + champ centre = ~1960px total. */
     .bracket-wrapper {
+        min-width: 1960px;
+        position: relative;  /* keep champ-col anchored here */
+    }
+
+    /* Make Streamlit's own container scroll the bracket */
+    [data-testid="stMarkdownContainer"] {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        min-width: 100%;
     }
+
+    /* Each side-half must be wide enough for 4 readable round columns */
     .bracket-wrapper > .side-half {
-        min-width: 480px;
+        min-width: 640px;
     }
-    .champ-col { width: 400px; }
 
-    /* Game cards: enforce minimum width */
-    .round-col { min-width: 115px; }
-    .game { min-width: 105px; }
+    /* Game cards: wide enough to show full team names */
+    .round-col { min-width: 155px; }
+    .game { min-width: 145px; }
 
-    /* Round headers row scrolls with bracket */
+    /* Champ col stays centered on the bracket, not the viewport */
+    .champ-col { width: 560px; }
+
+    /* Round headers row: same total width so they align */
     .round-headers-row {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        min-width: 1960px;
     }
-    .round-headers-left, .round-headers-right { min-width: 480px; }
+    .round-headers-left, .round-headers-right { min-width: 640px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1480,7 +1490,8 @@ with tab_probs:
   /* Mobile: horizontal scroll for the table */
   @media (max-width: 768px) {{
     #outer {{ overflow-x: auto; -webkit-overflow-scrolling: touch; display: block; }}
-    #wrap  {{ min-width: 700px; }}
+    #wrap  {{ min-width: 920px; }}
+    table  {{ min-width: 920px; }}
   }}
 </style>
 </head>
